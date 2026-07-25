@@ -24,8 +24,9 @@ infrastructure/services communs en un seul dossier `socle/`, cf.
 | Bloc `/16` | Catégorie |
 |---|---|
 | `10.0.0.0/16` | Réseau `proxy` partagé (routage, cf. ci-dessous — pas un bloc de `/24` par stack) |
-| `10.1.0.0/16` | Socle technique (Portainer, ddclient, Traefik, monitoring...) |
+| `10.1.0.0/16` | Socle technique (Portainer, ddclient, Traefik, monitoring...) — `10.1.255.0/24` réservé au secours physique (Ethernet du Pi), cf. tableau ci-dessous |
 | `10.2.0.0/16` | Services métiers |
+| `10.3.0.0/16` | LAN réels des sites, routés en site-à-site WireGuard sans NAT (cf. ci-dessous — pas un bloc de `/24` Docker par stack non plus) |
 
 Allocations actuelles — **à tenir à jour à chaque nouveau service** :
 
@@ -36,10 +37,14 @@ Allocations actuelles — **à tenir à jour à chaque nouveau service** :
 | `traefik` | socle | `10.1.2.0/24` | `net_traefik` | `10.0.1.2` (créateur du réseau) |
 | `adguard` | socle | — (`network_mode: host`, pas de `/24` — cf. « Dérogation réseau » ci-dessous) | — | — (aucun réseau Docker) |
 | `uptime-kuma` | socle | `10.1.3.0/24` | `net_uptime-kuma` | — (provider Docker de Traefik cassé/inutilisé, routé via provider file — cf. ci-dessous) — **pas encore dans le pipeline automatisé, cf. section dédiée** |
+| `— (réservé)` | socle | `10.1.255.0/24` | — | — (secours physique — port Ethernet du Pi, pas un stack Docker, **jamais à allouer**) |
 
 Prochain `/24` libre : `10.1.4.0/24` (socle) ; `10.2.0.0/24` (services
 métiers, bloc encore inutilisé). `adguard` ne consomme aucun `/24` (cf.
 ci-dessous), la numérotation n'est donc pas affectée par son ajout.
+`10.1.255.0/24` (dernier `/24` du bloc socle) est réservé au secours
+physique et **exclu du pool d'allocation** — ne jamais l'attribuer à une
+nouvelle stack.
 
 ### Réseau `proxy` partagé (routage)
 
@@ -164,6 +169,39 @@ ceux de l'hôte directement, configurés dans AdGuard Home lui-même
 (assistant de première configuration sur l'UI web) — hors périmètre
 Compose/`.env` de ce repo. Détail complet : `CLAUDE.md`, section
 « Dérogation réseau : `network_mode: host` ».
+
+### Bloc `10.3.0.0/16` — LAN réels des sites (site-à-site WireGuard sans NAT)
+
+Décidé le 2026-07-25, à l'occasion de la conception d'une future stack
+WireGuard (pas encore construite dans ce repo — template à venir). Nature
+différente des blocs `socle`/`métier` ci-dessus : **pas** des sous-réseaux
+Docker `/24` par stack sur cet hôte, mais les **LAN physiques réels** de
+chaque site distant relié en site-à-site **sans NAT** — renumérotés depuis
+leur subnet d'origine (souvent choisi par la box/le routeur, ex.
+`192.168.x.0/24`), pour garantir qu'ils ne collisionnent jamais entre eux.
+
+- **Pourquoi une renumérotation** : un routage site-à-site sans NAT exige une
+  adresse unique **globalement** (les deux sites doivent voir passer les
+  vraies IP l'un de l'autre) — contrairement au tunnel WireGuard **NAT'é**
+  des clients nomades/admin (road warrior), qui reste dans le pool `socle`
+  (`10.1.X.0/24`, cf. futur `socle/wireguard/`) car ses IP ne sortent jamais
+  du conteneur et n'ont donc besoin d'aucune unicité globale. Deux besoins
+  différents, deux blocs différents.
+- **Convention d'allocation** : un `/24` par site, tiré de ce bloc — le 3ème
+  octet reprend si possible celui du subnet d'origine (mnémotechnique), ex.
+  nomade `192.168.71.0/24` → `10.3.71.0/24`.
+- **Migration physique** (renumérotation effective du LAN du site) **hors
+  périmètre de ce repo** — pas du Docker/compose, à faire côté infra réseau
+  du site concerné (ex. rôle dédié de `rpi-stage`, configuration DHCP/routeur
+  de `rpi-nomade`). Ce repo se contente de réserver et documenter le bloc,
+  pour que plusieurs sites gérés avec cet outillage ne choisissent jamais le
+  même subnet indépendamment.
+
+Sites (registre à tenir à jour à chaque site relié en site-à-site) :
+
+| Site | Ancien subnet | Nouveau subnet (`10.3.0.0/16`) | Statut |
+|---|---|---|---|
+| `rpi-nomade` | `192.168.71.0/24` | `10.3.71.0/24` | migration prévue, pas encore faite |
 
 ---
 

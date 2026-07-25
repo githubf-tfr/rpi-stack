@@ -123,7 +123,9 @@ n'étant pas un service réellement déployé, il n'a pas sa place dans
   `10.1.0.0/16`, services métiers `10.2.0.0/16`. Le registre des allocations
   `/24` actuelles vit dans `README.md` (« Plan d'adressage réseau ») — à
   tenir à jour à chaque nouveau service, pour éviter les collisions de
-  sous-réseau.
+  sous-réseau. **Réservé, jamais à allouer** : `10.1.255.0/24` (dernier `/24`
+  du bloc socle) — secours physique (port Ethernet du Pi), pas un stack
+  Docker, noté le 2026-07-25.
 - **IP fixe par conteneur, en variable** — chaque conteneur a une IP fixe
   dans ce `/24`, jamais de dépendance à la DNS interne Docker. Convention
   d'adressage : `.100` = serveur/web, `.10` = bdd (à rappeler en commentaire
@@ -279,6 +281,21 @@ documentée à part plutôt que silencieuse) : la dérogation vit en commentaire
 en tête de `socle/adguard/compose.yaml` et dans cette section — pas dans
 l'arborescence (`socle/adguard/` reste un dossier de service normal, 1
 dossier = 1 service, même sans les fichiers réseau habituels).
+
+## Bloc `10.3.0.0/16` — LAN réels des sites (site-à-site WireGuard sans NAT)
+
+Décidé le 2026-07-25, à l'occasion de la conception d'une future stack
+WireGuard (pas encore construite dans ce repo — template à venir). Contrai-
+rement aux blocs `socle`/`métier`, ce n'est **pas** un pool de `/24` Docker
+par stack : ce sont les **LAN physiques réels** de chaque site distant
+relié en site-à-site **sans NAT**, renumérotés depuis leur subnet d'origine
+pour garantir l'unicité globale entre sites (un routage sans NAT expose les
+vraies IP des deux côtés — contrairement au tunnel WireGuard NAT'é des
+clients nomades/admin, qui reste dans le pool `socle` classique puisque ses
+IP ne sortent jamais du conteneur). La migration physique du LAN d'un site
+est hors périmètre de ce repo (pas du Docker/compose) — ce repo réserve et
+documente juste le bloc. Registre des sites et détail complet dans
+`README.md`, section « Bloc `10.3.0.0/16` ».
 
 ## Comment un projet consomme ce repo
 
