@@ -35,8 +35,9 @@ Allocations actuelles — **à tenir à jour à chaque nouveau service** :
 | `ddclient` | socle | `10.1.1.0/24` | `net_ddclient` | — (pas d'interface web, rien à router) |
 | `traefik` | socle | `10.1.2.0/24` | `net_traefik` | `10.0.1.2` (créateur du réseau) |
 | `adguard` | socle | — (`network_mode: host`, pas de `/24` — cf. « Dérogation réseau » ci-dessous) | — | — (aucun réseau Docker) |
+| `uptime-kuma` | socle | `10.1.3.0/24` | `net_uptime-kuma` | — (provider Docker de Traefik cassé/inutilisé, routé via provider file — cf. ci-dessous) — **pas encore dans le pipeline automatisé, cf. section dédiée** |
 
-Prochain `/24` libre : `10.1.3.0/24` (socle) ; `10.2.0.0/24` (services
+Prochain `/24` libre : `10.1.4.0/24` (socle) ; `10.2.0.0/24` (services
 métiers, bloc encore inutilisé). `adguard` ne consomme aucun `/24` (cf.
 ci-dessous), la numérotation n'est donc pas affectée par son ajout.
 
@@ -57,9 +58,11 @@ n'a besoin de rien de tout ça — juste une IP:port dans la config `dynamic/`.
   octet du `/24` privé du service (sa position dans sa catégorie). Ex.
   `traefik` (`10.1.2.0/24`, 3ème octet `2`) → `10.0.1.2`. **Aucune autre
   stack ne le rejoint aujourd'hui** — `ddclient` n'a pas d'interface web
-  (rien à router), `portainer` est routé autrement (cf. « Pourquoi
-  Portainer n'est pas sur `net_proxy` » ci-dessous) ; le mécanisme reste
-  prêt pour un futur service qui en aurait vraiment besoin.
+  (rien à router), `portainer` et `uptime-kuma` sont routés autrement (cf.
+  « Pourquoi Portainer n'est pas sur `net_proxy` » ci-dessous — le provider
+  Docker de Traefik est d'ailleurs cassé/inutilisé dans ce repo, pas
+  seulement évité par choix) ; le mécanisme reste prêt pour un futur
+  service qui en aurait vraiment besoin.
 - **Point ouvert, pas encore tranché** : si une stack a besoin de plusieurs
   URLs Traefik distinctes (donc potentiellement plusieurs adresses sur ce
   réseau pour un seul service), le schéma à utiliser n'est pas décidé —
@@ -352,6 +355,83 @@ Variables requises (voir `socle/adguard/adguard.env.example`) :
 Pas de secrets — pas de `secrets.example/` dans ce dossier (mot de passe
 admin défini via l'assistant de première configuration, stocké haché dans
 `AdGuardHome.yaml` sous `ADGUARD_CONF_DIR`).
+
+---
+
+### `socle/uptime-kuma/` — Uptime Kuma (monitoring de disponibilité)
+
+> **⚠️ Pas (encore) intégré au pipeline de déploiement automatisé.** Décidé
+> le 2026-07-25 : le template est conservé dans ce repo (structure/
+> conventions déjà validées), mais son déploiement **automatisé/reproductible**
+> côté `rpi-nomade` (rôle `rpi-stage`, sans passer par l'assistant web) est
+> **en attente** tant que le premier démarrage sans assistant web (cf. plus
+> bas) n'a pas une solution fiable — l'approche identifiée s'appuie sur une
+> API interne d'Uptime Kuma non documentée et non garantie stable (cf.
+> « Premier démarrage » ci-dessous), jugée pas assez mûre pour un
+> déploiement automatisé en l'état. **Reste utilisable dès aujourd'hui pour
+> une infra stable/durable** (pas un déploiement destiné à être détruit et
+> rejoué régulièrement) : dans ce cas, passer une seule fois par l'assistant
+> web de première configuration au déploiement initial est acceptable — ce
+> n'est que la reproductibilité/l'automatisation intégrale qui est bloquée.
+> À réactiver dans le pipeline automatisé une fois cette amélioration faite
+> côté `rpi-stage` (ou si Uptime Kuma ajoute lui-même un mécanisme officiel —
+> variable d'environnement, endpoint REST).
+
+Monitoring de disponibilité (surveille Traefik/Portainer/AdGuard, et à
+terme les services métiers). Image officielle `louislam/uptime-kuma`.
+
+Particularités du template :
+
+- **Déployé via l'API Portainer** (`portainer-stack`), comme
+  `ddclient`/`adguard`/`traefik` — pas `docker-compose-stack`. Conséquence
+  directe (même incident que Traefik, cf. commit dédié) : **zéro
+  `env_file:`, zéro chemin de fichier référencé** dans `compose.yaml` — un
+  déploiement par API exécute le compose depuis le conteneur Portainer
+  lui-même, sans visibilité sur l'arborescence hôte.
+- **Pas de `healthcheck` redéclaré** — l'image officielle en fournit déjà un
+  nativement (binaire compilé `extra/healthcheck`, `HEALTHCHECK` intégré au
+  `Dockerfile` upstream, `60s`/`30s`/`180s`/5 retries) : redondant, et moins
+  bon, de le redéclarer ici.
+- **Pas de `network_mode: host`** — contrairement à AdGuard, aucun besoin
+  L2/broadcast ; `/24` dédié classique.
+- **Pas de `net_proxy`** — le provider Docker de Traefik est cassé/inutilisé
+  dans ce repo (incompatibilité de version), routage via provider file, même
+  schéma que Portainer (cf. `socle/traefik/dynamic/uptime-kuma.yml.example`
+  et « Pourquoi Portainer n'est pas sur `net_proxy` » plus haut).
+- Un seul volume nommé backé par bind (même pattern que `portainer_data`) :
+  base SQLite interne + captures d'écran de monitors, dans `/app/data`.
+
+Variables requises (voir `socle/uptime-kuma/uptime-kuma.env.example`) :
+
+| Variable | Rôle |
+|---|---|
+| `UPTIME_KUMA_CONTAINER_NAME` | Nom du conteneur (`uptime-kuma`, un seul conteneur dans la stack) |
+| `UPTIME_KUMA_BIND_ADDR` | IP d'écoute du port 3001 (UI web) |
+| `UPTIME_KUMA_NETWORK_SUBNET` | Sous-réseau Docker interne de la stack, en `/24` |
+| `UPTIME_KUMA_NETWORK_IP` | IP fixe d'Uptime Kuma dans ce sous-réseau (`.100`) |
+| `UPTIME_KUMA_NETWORK_NAME` / `UPTIME_KUMA_NETWORK_IFACE` | Nom de réseau Docker et nom d'interface bridge (`net_uptime-kuma`, 15 caractères — pile la limite Linux `IFNAMSIZ`, ne pas allonger) |
+| `UPTIME_KUMA_DATA_DIR` | Dossier hôte des données persistantes (base SQLite, captures d'écran) |
+
+Pas de secrets — pas de `secrets.example/` dans ce dossier.
+
+**Premier démarrage — pas d'automatisation possible depuis ce repo.**
+Contrainte apprise le 2026-07-25 (cf. `KANBAN.md` de `rpi-nomade`) : aucune
+exception à la règle « pas d'assistant web de première configuration » (même
+exigence que Portainer/`--admin-password-file` et AdGuard/API de contrôle).
+Vérifié contre le code source réel du dépôt `louislam/uptime-kuma` (pas une
+doc résumée) : Uptime Kuma n'offre **ni variable d'environnement** (demande
+de feature ouverte et non implémentée, cf.
+[issue #4277](https://github.com/louislam/uptime-kuma/issues/4277)) **ni
+endpoint REST** pour créer le premier compte admin — uniquement un
+événement **Socket.IO** `setup(username, password, callback)`
+(`server/server.js`). Deux pistes existent pour l'automatiser (client
+Socket.IO scripté, ou pré-remplissage direct de la base SQLite avec un hash
+bcrypt — même famille que le mot de passe admin Portainer), mais les deux
+impliquent du **code**, hors périmètre zéro-code de ce repo : à résoudre
+dans le rôle `rpi-stage` correspondant, pas ici. Ce template `compose.yaml`
+n'a donc **aucun levier** pour ce problème (pas de `${VAR}` possible, Uptime
+Kuma n'exposant aucune surface de configuration dessus) — il est inchangé
+quelle que soit la solution retenue côté `rpi-stage`.
 
 ---
 

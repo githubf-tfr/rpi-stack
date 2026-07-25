@@ -75,9 +75,12 @@ rpi-stack/
 │   │   ├── traefik.env.example     # modele des valeurs non secretes
 │   │   ├── traefik.yml.example     # modele de la config statique (voir note ci-dessous)
 │   │   └── dynamic/                # modeles de config dynamique (routes), voir "Reseau proxy partage"
-│   └── adguard/
-│       ├── compose.yaml            # template, ${VAR} uniquement -- network_mode: host, voir "Derogation reseau"
-│       └── adguard.env.example     # modele des valeurs non secretes
+│   ├── adguard/
+│   │   ├── compose.yaml            # template, ${VAR} uniquement -- network_mode: host, voir "Derogation reseau"
+│   │   └── adguard.env.example     # modele des valeurs non secretes
+│   └── uptime-kuma/
+│       ├── compose.yaml               # template, ${VAR} uniquement -- deploye via API Portainer, voir note ci-dessous
+│       └── uptime-kuma.env.example    # modele des valeurs non secretes
 └── metier/                         # vide pour l'instant -- premier service metier ici
 ```
 
@@ -150,6 +153,20 @@ n'étant pas un service réellement déployé, il n'a pas sa place dans
   `compose.yaml`, avec la raison technique précise plutôt qu'une supposition
   — pas de check maison en shell/log-parsing pour combler le vide (ce serait
   du code, cf. règle d'or).
+- **Zéro `env_file:`, zéro chemin de fichier référencé** — appris le
+  2026-07-25 à l'occasion de `traefik/` (identifiants OVH DNS-01), confirmé
+  à l'occasion de `uptime-kuma/` : dès qu'une stack est susceptible d'être
+  déployée via l'**API Portainer** (`portainer-stack`), `env_file:` (même en
+  chemin absolu) échoue — le moteur de compose interne de Portainer exécute
+  alors le compose depuis son propre conteneur, sans visibilité sur
+  l'arborescence hôte (contrairement aux `volumes:`, résolus par le démon
+  Docker de l'hôte, qui y a accès complet). Toute valeur, y compris
+  sensible, passe donc en `${VAR}`/`environment:` — jamais en `env_file:` ni
+  en tout autre chemin de fichier référencé dans `compose.yaml` — dès qu'une
+  stack a vocation à être déployée via l'API (cas actuel :
+  `ddclient`/`traefik`/`adguard`/`uptime-kuma`, tout sauf Portainer
+  lui-même, cf. « Comment un projet consomme ce repo » plus bas pour le
+  pourquoi de cette exception).
 
 ## Réseau `proxy` partagé (amendement à la règle du `/24` par stack)
 

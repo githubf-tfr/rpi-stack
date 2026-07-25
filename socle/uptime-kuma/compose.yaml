@@ -1,0 +1,89 @@
+# socle/uptime-kuma/compose.yaml -- template generique de stack Uptime Kuma
+# (monitoring de disponibilite -- surveille Traefik/Portainer/AdGuard...).
+# Aucune valeur ici : tout passe par ${VAR}, resolues par le consommateur
+# (fichier .env depose a cote via docker_compose_stack_env_file, ou
+# Environment variables de la Stack Portainer -- cf. CLAUDE.md de ce repo).
+#
+# Deploye via l'API Portainer (portainer-stack), comme ddclient/AdGuard/
+# Traefik -- PAS docker-compose-stack. Consequence directe (meme incident
+# que Traefik le 2026-07-25, cf. historique Git) : ZERO env_file:, ZERO
+# chemin de fichier reference dans ce compose -- un deploiement par API
+# execute le compose depuis le conteneur Portainer lui-meme, sans
+# visibilite sur l'arborescence hote. Toute valeur passe donc en ${VAR},
+# jamais de fichier externe.
+#
+# Premier demarrage sans assistant web (meme exigence que Portainer/
+# --admin-password-file et AdGuard/API de controle) : Uptime Kuma n'offre
+# NI variable d'environnement NI endpoint REST pour ca -- verifie contre le
+# code source reel (server/server.js, depot louislam/uptime-kuma) : la
+# creation du premier compte admin passe exclusivement par l'evenement
+# Socket.IO "setup" (username, password, callback), demande de feature
+# ouverte et non implementee (issue #4277). Automatisable uniquement via un
+# client Socket.IO scripte ou un pre-remplissage direct de la base SQLite
+# (bcryptjs, meme famille de hash que Portainer) -- les deux impliquent du
+# code, hors perimetre zero-code de ce repo : a resoudre dans le role
+# rpi-stage correspondant, pas ici. Cf. README.md pour le detail.
+
+services:
+  uptime-kuma:
+    image: louislam/uptime-kuma:1
+    # Nom de conteneur = variable, formalisme nomdelastack_xxx (juste
+    # "nomdelastack" si un seul conteneur dans la stack -- cas ici).
+    container_name: "${UPTIME_KUMA_CONTAINER_NAME}"
+    restart: always
+    # Pas de healthcheck: ici -- l'image officielle en fournit deja un
+    # nativement (binaire compile extra/healthcheck, HEALTHCHECK integre au
+    # Dockerfile upstream -- 60s/30s/180s/5 retries, cf. docker/dockerfile
+    # du depot louislam/uptime-kuma) : redondant, et moins bon, de le
+    # redeclarer ici.
+    ports:
+      # PAS 0.0.0.0 : Docker contourne ufw pour ses ports publies (chaine
+      # FORWARD/DNAT, pas filtree par la politique par defaut d'ufw) -- le
+      # consommateur fixe l'adresse de bind explicitement. Port interne
+      # 3001 fixe (pas de variable dediee, meme choix que Portainer/9000) :
+      # aucune raison de le remapper.
+      - "${UPTIME_KUMA_BIND_ADDR}:3001:3001"
+    volumes:
+      # Donnee persistante (base SQLite interne + captures d'ecran de
+      # monitors) -- volume nomme, backe par un bind explicite, meme
+      # pattern que portainer_data.
+      - uptime_kuma_data:/app/data
+    networks:
+      network:
+        # Convention d'adressage rpi-stack : .100 = serveur/web, .10 = bdd
+        # (ici, un seul conteneur, .100).
+        ipv4_address: "${UPTIME_KUMA_NETWORK_IP}"
+
+networks:
+  # Reseau bridge DEDIE a cette stack, sous-reseau propre, TOUJOURS en /24.
+  # PAS de net_proxy : le provider Docker de Traefik est casse/inutilise
+  # (incompatibilite de version) -- routage via le provider file, meme
+  # schema que Portainer (cf. socle/traefik/dynamic/uptime-kuma.yml.example
+  # et README.md "Pourquoi Portainer n'est pas sur net_proxy").
+  network:
+    # Nom de reseau Docker et nom d'interface bridge : deux variables
+    # distinctes (formalisme "net_xxx" pour les deux), gardees identiques
+    # ici -- "net_uptime-kuma" fait PILE 15 caracteres, la limite Linux
+    # IFNAMSIZ (16 octets, terminateur NUL inclus) pour un nom d'interface :
+    # ne pas rallonger sans reduire ailleurs si jamais decouple un jour.
+    name: "${UPTIME_KUMA_NETWORK_NAME}"
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: "${UPTIME_KUMA_NETWORK_IFACE}"
+    ipam:
+      driver: default
+      config:
+        - subnet: "${UPTIME_KUMA_NETWORK_SUBNET}"
+
+volumes:
+  # Volume nomme, mais backe par un bind explicite -- pas un volume "libre"
+  # sous /var/lib/docker (reserve au moteur : images/layers). ATTENTION :
+  # contrairement a un bind-mount court, `o: bind` ne cree PAS le dossier
+  # hote tout seul -- UPTIME_KUMA_DATA_DIR doit deja exister avant le
+  # premier deploiement.
+  uptime_kuma_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: "${UPTIME_KUMA_DATA_DIR}"
