@@ -60,8 +60,8 @@ certificatesResolvers:
       # generes sur https://api.ovh.com/createToken/) -- DIFFERENTS des
       # identifiants DynHost utilises par ddclient (ceux-la ne donnent pas
       # acces a l'API generaliste). Identifiants deja fournis en variables
-      # d'environnement du conteneur via secrets/ovh_dns.env (cf.
-      # compose.yaml, meme mecanisme que secrets/license.env de Portainer) --
+      # d'environnement du conteneur via ${TRAEFIK_SECRETS_DIR}/ovh_dns.env
+      # (cf. compose.yaml, meme mecanisme que secrets/license.env de Portainer) --
       # a activer en retirant httpChallenge ci-dessus et decommentant ce qui
       # suit.
       # dnsChallenge:

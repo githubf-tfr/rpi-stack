@@ -13,9 +13,13 @@ services:
     # DNS-01 (challenge ACME sans exposer le port 80) : identifiants API OVH
     # fournis par le consommateur (meme mecanisme que secrets/license.env de
     # Portainer) -- sans effet si dnsChallenge n'est pas active dans
-    # traefik.yml (cf. traefik.yml.example).
+    # traefik.yml (cf. traefik.yml.example). Chemin ABSOLU (pas de ./secrets/
+    # relatif) : un deploiement via l'API Portainer execute le compose depuis
+    # son propre dossier de travail interne, pas depuis un dossier controle
+    # par le consommateur -- meme raison que TRAEFIK_STATIC_CONFIG_PATH/
+    # TRAEFIK_DYNAMIC_CONFIG_DIR/TRAEFIK_ACME_DIR ci-dessous.
     env_file:
-      - ./secrets/ovh_dns.env
+      - "${TRAEFIK_SECRETS_DIR}/ovh_dns.env"
     command:
       - "--configFile=/etc/traefik/traefik.yml"
     # Sous-commande CLI native (pas un ping ICMP) : fait un vrai GET HTTP sur
