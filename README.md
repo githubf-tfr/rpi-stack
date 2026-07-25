@@ -37,9 +37,11 @@ Allocations actuelles — **à tenir à jour à chaque nouveau service** :
 | `traefik` | socle | `10.1.2.0/24` | `net_traefik` | `10.0.1.2` (créateur du réseau) |
 | `adguard` | socle | — (`network_mode: host`, pas de `/24` — cf. « Dérogation réseau » ci-dessous) | — | — (aucun réseau Docker) |
 | `uptime-kuma` | socle | `10.1.3.0/24` | `net_uptime-kuma` | — (provider Docker de Traefik cassé/inutilisé, routé via provider file — cf. ci-dessous) — **pas encore dans le pipeline automatisé, cf. section dédiée** |
+| `wireguard` | socle | `10.1.4.0/24` | `net_wireguard` | — (pas d'UI web, rien à router) |
+| `wireguard` (tunnel `wg0`) | socle | `10.1.5.0/24` | — | — (**pas** un réseau Docker — adressage interne du tunnel WireGuard, géré dans `wg_confs/wg0.conf`, cf. section dédiée) |
 | `— (réservé)` | socle | `10.1.255.0/24` | — | — (secours physique — port Ethernet du Pi, pas un stack Docker, **jamais à allouer**) |
 
-Prochain `/24` libre : `10.1.4.0/24` (socle) ; `10.2.0.0/24` (services
+Prochain `/24` libre : `10.1.6.0/24` (socle) ; `10.2.0.0/24` (services
 métiers, bloc encore inutilisé). `adguard` ne consomme aucun `/24` (cf.
 ci-dessous), la numérotation n'est donc pas affectée par son ajout.
 `10.1.255.0/24` (dernier `/24` du bloc socle) est réservé au secours
@@ -470,6 +472,83 @@ dans le rôle `rpi-stage` correspondant, pas ici. Ce template `compose.yaml`
 n'a donc **aucun levier** pour ce problème (pas de `${VAR}` possible, Uptime
 Kuma n'exposant aucune surface de configuration dessus) — il est inchangé
 quelle que soit la solution retenue côté `rpi-stage`.
+
+---
+
+### `socle/wireguard/` — VPN (WireGuard)
+
+VPN — couvre 3 profils de peers dans **une seule config** (WireGuard ne
+distingue pas ces cas au niveau protocole, juste des `AllowedIPs`
+différents par peer, cf. `wg_confs/wg0.conf.example`) :
+
+1. **Client nomade classique** — accède au LAN du site (pas encore
+   utilisé).
+2. **Client admin** (1-2 clients) — accède en plus au réseau `socle`
+   Docker (`10.1.0.0/16` en `AllowedIPs`).
+3. **Site-à-site** — peer distant avec `Endpoint` fixe, tout son LAN réel
+   (tiré du bloc `10.3.0.0/16`, cf. ci-dessus) en `AllowedIPs`.
+
+Image `lscr.io/linuxserver/wireguard`.
+
+Particularités du template :
+
+- **Déployé via l'API Portainer** (`portainer-stack`), comme
+  `ddclient`/`traefik`/`adguard`/`uptime-kuma` — pas `docker-compose-stack`.
+  Zéro `env_file:`, zéro chemin de fichier référencé dans `compose.yaml`
+  (cf. convention actée dans `CLAUDE.md`).
+- **Réseau bridge classique, pas `network_mode: host`** — vérifié contre le
+  README officiel `linuxserver/docker-wireguard` : contrairement à AdGuard
+  (broadcast L2 pour le DHCP), WireGuard n'a besoin que de `cap_add:
+  NET_ADMIN` + `sysctls: net.ipv4.conf.all.src_valid_mark=1` (documenté
+  requis par l'image) + `net.ipv4.ip_forward=1` (pas documenté par l'image,
+  mais indispensable pour relayer le trafic déchiffré vers le LAN).
+- **Mode "custom" de l'image** — pas de variables `PEERS`/`SERVERURL`/...
+  (génération automatique de peers), le consommateur dépose lui-même
+  `wg_confs/wg0.conf` (cf. `.example`) : zéro génération de clé/peer par ce
+  repo (zéro-code).
+- **Pas de `healthcheck`** — l'image ne fournit aucun `HEALTHCHECK` natif ;
+  le seul outil interne (`wg show wg0`) ne confirme que la présence de la
+  config d'interface, pas que le tunnel/le routage fonctionnent réellement
+  — pas assez fiable pour remplacer une vraie sonde (même prudence que pour
+  AdGuard).
+- **NAT (MASQUERADE) par défaut pour les 3 profils**, y compris le
+  site-à-site — géré dans `PostUp`/`PreDown` de `wg0.conf`, pas au niveau
+  Docker. Choix délibéré : marche sans aucune config côté routeur physique
+  des sites, au prix de masquer les IP source réelles pour le site-à-site.
+  Alternative "propre" (sans NAT, IP réelles visibles des deux côtés)
+  documentée en commentaire dans `wg_confs/wg0.conf.example` mais **pas le
+  défaut** — demande en plus une route statique sur le routeur physique de
+  chaque site et de désactiver le NAT de bridge Docker
+  (`com.docker.network.bridge.enable_ip_masquerade: false`), hors périmètre
+  d'un template générique.
+- Un seul volume nommé backé par bind (même pattern que `portainer_data`) :
+  `/config` (contient `wg_confs/wg0.conf`, clés incluses).
+
+Variables requises (voir `socle/wireguard/wireguard.env.example`) :
+
+| Variable | Rôle |
+|---|---|
+| `WIREGUARD_CONTAINER_NAME` | Nom du conteneur (`wireguard`, un seul conteneur dans la stack) |
+| `WIREGUARD_PUID` / `WIREGUARD_PGID` / `WIREGUARD_TZ` | Image linuxserver.io : utilisateur hôte propriétaire des fichiers montés, fuseau horaire des logs |
+| `WIREGUARD_BIND_ADDR` | IP d'écoute du port UDP 51820 |
+| `WIREGUARD_NETWORK_SUBNET` | Sous-réseau Docker interne de la stack, en `/24` — **pas** l'adressage du tunnel WireGuard (cf. ci-dessous) |
+| `WIREGUARD_NETWORK_IP` | IP fixe du conteneur dans ce sous-réseau (`.100`) |
+| `WIREGUARD_NETWORK_NAME` / `WIREGUARD_NETWORK_IFACE` | Nom de réseau Docker et nom d'interface bridge (`net_wireguard`) |
+| `WIREGUARD_CONFIG_DIR` | Dossier hôte des données persistantes — **doit contenir `wg_confs/wg0.conf`** avant le premier déploiement |
+
+Pas de secrets `secrets.example/` séparés — les clés WireGuard vivent
+directement dans `wg_confs/wg0.conf` (fichier de config applicative
+complète, même cas que `ddclient.conf`/`traefik.yml`, cf. `CLAUDE.md` « Cas
+particulier »), jamais dans un `.env`.
+
+**Adressage du tunnel WireGuard — distinct du `/24` Docker ci-dessus.**
+`10.1.5.0/24` (6ème `/24` du bloc socle, réservé mais **jamais** passé en
+`${VAR}` Compose) : c'est l'espace `Address=`/`AllowedIPs` interne au
+tunnel `wg0` lui-même, géré entièrement dans `wg_confs/wg0.conf` — NAT'é
+donc jamais visible en dehors du conteneur, pas besoin d'unicité globale
+(contrairement au bloc `10.3.0.0/16` utilisé pour le site-à-site, cf.
+ci-dessus). Convention d'adressage WireGuard habituelle ici (`.1` =
+serveur), pas celle de rpi-stack (`.100`).
 
 ---
 

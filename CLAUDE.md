@@ -78,9 +78,14 @@ rpi-stack/
 │   ├── adguard/
 │   │   ├── compose.yaml            # template, ${VAR} uniquement -- network_mode: host, voir "Derogation reseau"
 │   │   └── adguard.env.example     # modele des valeurs non secretes
-│   └── uptime-kuma/
-│       ├── compose.yaml               # template, ${VAR} uniquement -- deploye via API Portainer, voir note ci-dessous
-│       └── uptime-kuma.env.example    # modele des valeurs non secretes
+│   ├── uptime-kuma/
+│   │   ├── compose.yaml               # template, ${VAR} uniquement -- deploye via API Portainer, voir note ci-dessous
+│   │   └── uptime-kuma.env.example    # modele des valeurs non secretes
+│   └── wireguard/
+│       ├── compose.yaml            # template, ${VAR} uniquement -- deploye via API Portainer
+│       ├── wireguard.env.example   # modele des valeurs non secretes
+│       └── wg_confs/               # modele du fichier de config complet (voir "Cas particulier" plus haut)
+│           └── wg0.conf.example
 └── metier/                         # vide pour l'instant -- premier service metier ici
 ```
 

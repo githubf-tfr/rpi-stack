@@ -1,0 +1,90 @@
+# Modele de wg_confs/wg0.conf -- copier dans WIREGUARD_CONFIG_DIR/wg_confs/
+# (mode "custom" de l'image linuxserver/wireguard, cf. compose.yaml),
+# remplir avec les vraies cles/valeurs du deploiement consommateur, ne
+# jamais committer le fichier reel (ni ici, ni cote consommateur -- il
+# contient des cles privees). Fichier monte tel quel, pas de decoupage
+# ${VAR}/secret possible a l'interieur (Compose ne template que son propre
+# compose.yaml, meme cas que ddclient.conf/traefik.yml -- cf. CLAUDE.md
+# "Cas particulier : config applicative non decoupable en ${VAR}").
+#
+# Couvre les 3 profils de peers dans UN SEUL fichier (WireGuard ne
+# distingue pas "client" de "site" au niveau protocole -- juste des
+# AllowedIPs differents par peer, cf. README.md pour le detail de
+# l'arbitrage) :
+#   1. client nomade classique (accede au LAN du site, pas encore utilise)
+#   2. client admin, 1-2 clients (accede en plus au reseau socle Docker)
+#   3. site-a-site (peer distant avec Endpoint fixe, tout son LAN en
+#      AllowedIPs)
+#
+# Adressage : deux espaces INDEPENDANTS, a ne pas confondre --
+#   - Le tunnel WireGuard lui-meme (Address=/AllowedIPs des peers 1 et 2
+#     ci-dessous) : 10.1.5.0/24, reserve dans le pool socle (NAT'e, ne sort
+#     jamais du conteneur -- pas besoin d'unicite globale, cf. README.md
+#     "Plan d'adressage reseau"). Convention WireGuard habituelle ici (PAS
+#     celle de rpi-stack) : .1 = serveur, peers suivants a la suite.
+#   - Le LAN reel du site distant, pour le peer 3 (site-a-site) : tire du
+#     bloc DEDIE 10.3.0.0/16 (cf. README.md "Bloc 10.3.0.0/16"), PAS du
+#     tunnel WireGuard -- ce qui transite en site-a-site, ce sont les
+#     vraies IP du LAN distant, pas des IP WireGuard.
+
+[Interface]
+# Cle privee du SERVEUR (generee cote consommateur : `wg genkey`), JAMAIS
+# committee. La cle publique correspondante (`wg pubkey < cle_privee`) est
+# ce que tu donnes a chaque peer pour qu'il te trouve.
+PrivateKey = <CLE_PRIVEE_SERVEUR_A_GENERER>
+Address = 10.1.5.1/24
+ListenPort = 51820
+
+# NAT (MASQUERADE) pour TOUT le trafic sortant vers eth0 (LAN, via le
+# reseau Docker de la stack) -- couvre les 3 profils de peers par defaut,
+# y compris le site-a-site (peer 3) : plus simple, marche sans aucune
+# config cote routeur physique des sites. Contrepartie assumee pour le
+# site-a-site : le site distant voit le trafic comme venant du Pi, pas des
+# vraies IP du LAN local (et inversement) -- suffisant pour la plupart des
+# usages home-lab. Alternative "propre" (sans NAT, vraies IP visibles des
+# deux cotes) volontairement PAS le defaut ici : demande en plus une route
+# statique sur le routeur physique de CHAQUE site ET de desactiver le NAT
+# de bridge Docker (com.docker.network.bridge.enable_ip_masquerade: false)
+# -- hors perimetre d'un template generique, a activer manuellement si
+# besoin reel (cf. README.md, section dediee).
+PostUp = iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+PreDown = iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+
+# --- Cas 1 : client nomade classique -----------------------------------
+# Pas encore utilise (cf. README.md) -- gabarit conserve pour reference.
+# AllowedIPs = seulement son propre /32 dans le tunnel : accede au LAN du
+# site via le NAT ci-dessus, mais pas au reseau socle Docker (pas de
+# 10.1.0.0/16 ici, contrairement au peer admin cas 2).
+[Peer]
+# Cle publique du CLIENT (generee cote client : `wg pubkey < cle_privee`,
+# jamais la cle privee cote serveur).
+PublicKey = <CLE_PUBLIQUE_CLIENT_NOMADE>
+AllowedIPs = 10.1.5.2/32
+
+# --- Cas 2 : client admin (1 a 2 clients) -------------------------------
+# AllowedIPs elargi : son /32 dans le tunnel + tout le bloc socle
+# (10.1.0.0/16, Portainer/Traefik/AdGuard/etc.) -- c'est CE champ, pas une
+# interface/stack separee, qui distingue un peer "admin" d'un peer
+# "classique" (cf. README.md).
+[Peer]
+PublicKey = <CLE_PUBLIQUE_CLIENT_ADMIN>
+AllowedIPs = 10.1.5.3/32, 10.1.0.0/16
+
+# --- Cas 3 : site-a-site -------------------------------------------------
+# Endpoint fixe (le site distant doit avoir une IP publique stable ou un
+# nom DNS a jour, ex. via ddclient) -- c'est CE qui distingue un peer
+# "site" d'un peer "client" (qui, lui, initie la connexion sans Endpoint
+# connu du serveur). AllowedIPs = le LAN REEL du site distant (tire du bloc
+# 10.3.0.0/16, PAS une IP du tunnel WireGuard 10.1.5.0/24 -- cf. README.md
+# "Bloc 10.3.0.0/16"), pas un /32.
+[Peer]
+PublicKey = <CLE_PUBLIQUE_SITE_DISTANT>
+Endpoint = <IP_PUBLIQUE_OU_DNS_SITE_DISTANT>:51820
+# 10.3.99.0/24 : exemple -- remplacer par le /24 reellement enregistre pour
+# ce site dans le registre du README.md ("Bloc 10.3.0.0/16"), ex.
+# 10.3.71.0/24 pour rpi-nomade.
+AllowedIPs = 10.3.99.0/24
+# Conserve la connexion active a travers un NAT/routeur qui coupe les
+# connexions UDP inactives (frequent en site-a-site, les deux bouts sont
+# souvent chacun derriere leur propre box/routeur).
+PersistentKeepalive = 25

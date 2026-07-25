@@ -1,0 +1,109 @@
+# socle/wireguard/compose.yaml -- template generique de stack WireGuard
+# (VPN). Couvre 3 profils de peers dans UNE SEULE config (cf.
+# wg_confs/wg0.conf.example pour le detail) : client nomade classique,
+# client admin (acces au reseau socle), site-a-site -- WireGuard ne
+# distingue pas ces cas au niveau protocole, juste des AllowedIPs
+# differents par peer. Aucune valeur ici : tout passe par ${VAR}, resolues
+# par le consommateur (fichier .env depose a cote via
+# docker_compose_stack_env_file, ou Environment variables de la Stack
+# Portainer -- cf. CLAUDE.md de ce repo).
+#
+# Deploye via l'API Portainer (portainer-stack), comme
+# ddclient/traefik/adguard/uptime-kuma -- PAS docker-compose-stack. Zero
+# env_file:, zero chemin de fichier reference (cf. convention actee dans
+# CLAUDE.md "Conventions des compose.yaml", suite a l'incident Traefik du
+# 2026-07-25).
+#
+# Reseau bridge classique, PAS network_mode: host -- verifie contre le
+# README officiel linuxserver/docker-wireguard : contrairement a AdGuard
+# (broadcast L2 pour le DHCP), WireGuard n'a besoin que de NET_ADMIN + un
+# sysctl pour creer son interface. Le routage vers le LAN se fait via
+# PostUp/PreDown (iptables MASQUERADE) DANS wg0.conf, pas au niveau Docker
+# -- cf. wg_confs/wg0.conf.example.
+
+services:
+  wireguard:
+    image: lscr.io/linuxserver/wireguard:latest
+    # Nom de conteneur = variable, formalisme nomdelastack_xxx (juste
+    # "nomdelastack" si un seul conteneur dans la stack -- cas ici).
+    container_name: "${WIREGUARD_CONTAINER_NAME}"
+    restart: always
+    cap_add:
+      # Necessaire a WireGuard pour creer son interface VPN. SYS_MODULE
+      # (charger le module noyau) volontairement PAS ajoute -- present
+      # nativement depuis le noyau 5.6, cas standard sur Raspberry Pi OS
+      # recent ; a ajouter explicitement seulement si `lsmod | grep
+      # wireguard` est vide sur la cible reelle.
+      - NET_ADMIN
+    environment:
+      - PUID=${WIREGUARD_PUID}
+      - PGID=${WIREGUARD_PGID}
+      - TZ=${WIREGUARD_TZ}
+    sysctls:
+      # net.ipv4.conf.all.src_valid_mark : documente comme obligatoire par
+      # l'image upstream (meme en usage "serveur" pur, pas seulement mode
+      # client).
+      - net.ipv4.conf.all.src_valid_mark=1
+      # net.ipv4.ip_forward : necessaire pour que le conteneur relaie le
+      # trafic dechiffre (venant de wg0) vers son interface eth0 (LAN/reseau
+      # Docker) -- pas documente comme requis par l'image upstream (leurs
+      # exemples couvrent surtout le mode client), mais indispensable des
+      # qu'un peer doit atteindre autre chose que le conteneur lui-meme.
+      - net.ipv4.ip_forward=1
+    # Pas de healthcheck: ici -- l'image ne fournit aucun HEALTHCHECK natif
+    # (verifie contre son README), et le seul outil interne disponible
+    # (`wg show wg0`) confirme seulement que la config d'interface est
+    # chargee, pas que le tunnel/le routage fonctionnent reellement -- pas
+    # assez fiable pour remplacer une vraie sonde (meme prudence que pour
+    # AdGuard, cf. CLAUDE.md).
+    ports:
+      # PAS 0.0.0.0 : Docker contourne ufw pour ses ports publies (chaine
+      # FORWARD/DNAT, pas filtree par la politique par defaut d'ufw) -- le
+      # consommateur fixe l'adresse de bind explicitement. UDP, port fixe
+      # 51820 (convention WireGuard) : aucune raison de le remapper.
+      - "${WIREGUARD_BIND_ADDR}:51820:51820/udp"
+    volumes:
+      # Config + etat persistant. Mode "custom" de l'image (documente dans
+      # son README) : PAS de variable PEERS/SERVERURL/... cote environment,
+      # ce qui desactive la generation automatique de peers -- le
+      # consommateur depose lui-meme wg_confs/wg0.conf (cf.
+      # wg_confs/wg0.conf.example), gere ses propres cles/peers. Zero
+      # generation automatique par ce repo (zero-code, cf. regle d'or).
+      - wireguard_config:/config
+    networks:
+      network:
+        # Convention d'adressage rpi-stack : .100 = serveur/web, .10 = bdd
+        # (ici, un seul conteneur, .100). C'EST l'IP du conteneur sur le
+        # reseau Docker de l'hote -- SANS RAPPORT avec l'adressage interne
+        # du tunnel WireGuard (Address=/AllowedIPs de wg0.conf, convention
+        # differente -- .1 = serveur -- documentee dans
+        # wg_confs/wg0.conf.example et le registre de README.md).
+        ipv4_address: "${WIREGUARD_NETWORK_IP}"
+
+networks:
+  # Reseau bridge DEDIE a cette stack, sous-reseau propre, TOUJOURS en /24.
+  # PAS de net_proxy : WireGuard n'a pas d'UI web a exposer via Traefik.
+  network:
+    name: "${WIREGUARD_NETWORK_NAME}"
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: "${WIREGUARD_NETWORK_IFACE}"
+    ipam:
+      driver: default
+      config:
+        - subnet: "${WIREGUARD_NETWORK_SUBNET}"
+
+volumes:
+  # Volume nomme, mais backe par un bind explicite -- pas un volume "libre"
+  # sous /var/lib/docker (reserve au moteur : images/layers). Contient
+  # wg_confs/wg0.conf (PRIVE, cles incluses -- jamais commite, cf.
+  # wg_confs/wg0.conf.example) + etat interne de l'image. ATTENTION :
+  # contrairement a un bind-mount court, `o: bind` ne cree PAS le dossier
+  # hote tout seul -- WIREGUARD_CONFIG_DIR doit deja exister, avec
+  # wg_confs/wg0.conf dedans, avant le premier deploiement.
+  wireguard_config:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: "${WIREGUARD_CONFIG_DIR}"
