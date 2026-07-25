@@ -269,7 +269,13 @@ Particularités du template :
 - TLS : challenge HTTP-01 par défaut (port 80 joignable) ; alternative DNS-01
   via OVH documentée en commentaire dans `traefik.yml.example` (pas de port
   80 exposé, certs wildcard, mais identifiants API OVH différents de ceux de
-  `ddclient`).
+  `ddclient`). Identifiants injectés en `environment:` (`TRAEFIK_OVH_*` →
+  `OVH_*` côté conteneur, imposés par le provider "ovh" de lego), pas
+  `env_file:` : un déploiement via l'API Portainer (`portainer-stack`)
+  exécute le compose depuis le conteneur Portainer lui-même, sans visibilité
+  sur l'arborescence hôte — `env_file:` y échoue même en chemin absolu,
+  contrairement aux `volumes:` (bind-mounts, exécutés côté démon Docker de
+  l'hôte, qui y a accès).
 - **`healthcheck` via `traefik healthcheck --ping`** — sous-commande CLI
   native (pas un ping ICMP) : GET HTTP réel sur `/ping`, servi par
   l'entrypoint interne `traefik` (port 8080, non publié vers l'hôte).
@@ -286,7 +292,7 @@ Variables requises (voir `socle/traefik/traefik.env.example`) :
 | `TRAEFIK_STATIC_CONFIG_PATH` | Chemin hôte vers `traefik.yml` réel |
 | `TRAEFIK_DYNAMIC_CONFIG_DIR` | Dossier hôte vers les `dynamic/*.yml` réels |
 | `TRAEFIK_ACME_DIR` | Dossier hôte des certificats ACME (`acme.json` à pré-créer en `chmod 600`) |
-| `TRAEFIK_SECRETS_DIR` | Dossier hôte des secrets de la stack (`ovh_dns.env`), chemin absolu — compatible déploiement via l'API Portainer |
+| `TRAEFIK_OVH_ENDPOINT` / `TRAEFIK_OVH_APPLICATION_KEY` / `TRAEFIK_OVH_APPLICATION_SECRET` / `TRAEFIK_OVH_CONSUMER_KEY` | Identifiants API OVH pour le provider DNS-01 "ovh" de lego (`OVH_*` côté conteneur) — DIFFÉRENTS des identifiants DynHost de `ddclient` ; sans effet si `dnsChallenge` n'est pas activé dans `traefik.yml` |
 | `TRAEFIK_NETWORK_SUBNET` | Sous-réseau Docker interne de la stack, en `/24` |
 | `TRAEFIK_NETWORK_IP` | IP fixe de Traefik dans ce sous-réseau (`.100`) |
 | `TRAEFIK_NETWORK_NAME` | Nom de réseau Docker (`net_traefik`) |
@@ -295,11 +301,10 @@ Variables requises (voir `socle/traefik/traefik.env.example`) :
 | `TRAEFIK_PROXY_NETWORK_SUBNET` | Sous-réseau fixe du réseau partagé (`10.0.0.0/16`) |
 | `TRAEFIK_PROXY_IP` | IP fixe de Traefik lui-même sur `net_proxy` (`10.0.2.0`, formalisme `10.0.X.Y`) |
 
-Secrets requis (voir `socle/traefik/secrets.example/`) :
-
-| Fichier | Contenu |
-|---|---|
-| `${TRAEFIK_SECRETS_DIR}/ovh_dns.env` | Identifiants API OVH (`OVH_ENDPOINT`/`OVH_APPLICATION_KEY`/`OVH_APPLICATION_SECRET`/`OVH_CONSUMER_KEY`) pour le provider DNS-01 "ovh" de lego — DIFFÉRENTS des identifiants DynHost de `ddclient` ; sans effet si `dnsChallenge` n'est pas activé dans `traefik.yml` |
+Pas de secrets — pas de `secrets.example/` dans ce dossier (les identifiants
+API OVH sont des variables `${VAR}` classiques comme le reste de
+`traefik.env.example`, cf. tableau ci-dessus ; `env_file:` a été écarté
+justement pour rester compatible avec un déploiement via l'API Portainer).
 
 ---
 

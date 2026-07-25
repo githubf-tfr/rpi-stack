@@ -11,15 +11,23 @@ services:
     container_name: "${TRAEFIK_CONTAINER_NAME}"
     restart: always
     # DNS-01 (challenge ACME sans exposer le port 80) : identifiants API OVH
-    # fournis par le consommateur (meme mecanisme que secrets/license.env de
-    # Portainer) -- sans effet si dnsChallenge n'est pas active dans
-    # traefik.yml (cf. traefik.yml.example). Chemin ABSOLU (pas de ./secrets/
-    # relatif) : un deploiement via l'API Portainer execute le compose depuis
-    # son propre dossier de travail interne, pas depuis un dossier controle
-    # par le consommateur -- meme raison que TRAEFIK_STATIC_CONFIG_PATH/
-    # TRAEFIK_DYNAMIC_CONFIG_DIR/TRAEFIK_ACME_DIR ci-dessous.
-    env_file:
-      - "${TRAEFIK_SECRETS_DIR}/ovh_dns.env"
+    # fournis par le consommateur -- sans effet si dnsChallenge n'est pas
+    # active dans traefik.yml (cf. traefik.yml.example). En ${VAR}
+    # individuelles (pas env_file: - chemin) : env_file est resolu par le
+    # moteur de compose de Portainer lui-meme quand la stack est deployee via
+    # son API (portainer-stack), a l'interieur de son propre conteneur, qui
+    # n'a aucune visibilite sur l'arborescence hote (contrairement aux
+    # volumes:, executes par le demon Docker de l'hote) -- meme un chemin
+    # absolu echoue alors ("env file ... not found"). Resolues comme le reste
+    # de ce template, via portainer_stack_env. Noms cote conteneur (OVH_*)
+    # imposes par le provider "ovh" de lego, pas prefixes -- meme cas que
+    # PUID/PGID/TZ de ddclient (image tierce, formalisme impose par elle) ;
+    # les ${VAR} cote template restent prefixees TRAEFIK_ par convention.
+    environment:
+      - OVH_ENDPOINT=${TRAEFIK_OVH_ENDPOINT}
+      - OVH_APPLICATION_KEY=${TRAEFIK_OVH_APPLICATION_KEY}
+      - OVH_APPLICATION_SECRET=${TRAEFIK_OVH_APPLICATION_SECRET}
+      - OVH_CONSUMER_KEY=${TRAEFIK_OVH_CONSUMER_KEY}
     command:
       - "--configFile=/etc/traefik/traefik.yml"
     # Sous-commande CLI native (pas un ping ICMP) : fait un vrai GET HTTP sur
