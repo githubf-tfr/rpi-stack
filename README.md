@@ -175,6 +175,17 @@ ceux de l'hôte directement, configurés dans AdGuard Home lui-même
 Compose/`.env` de ce repo. Détail complet : `CLAUDE.md`, section
 « Dérogation réseau : `network_mode: host` ».
 
+Conséquence directe : `socle/adguard/` **ne rejoint pas non plus `net_proxy`**
+(cf. « Réseau `proxy` partagé » plus haut). Pas un choix ni une simple
+restriction de syntaxe Compose — une limitation réseau Linux réelle : en
+`network_mode: host`, le conteneur est placé directement dans le namespace
+réseau de l'hôte, il n'existe donc aucun namespace réseau conteneur sur
+lequel attacher un second réseau Docker (bridge `net_proxy` ou autre). Si
+AdGuard avait un jour besoin de TLS Traefik, ce serait via le même
+mécanisme que Portainer/Uptime Kuma (provider file, IP:port de l'hôte —
+cf. « Pourquoi Portainer n'est pas sur `net_proxy` » plus haut), jamais via
+`net_proxy`.
+
 ### Dérogation réseau : sous-réseau partagé serveur/agent Portainer
 
 Décidé le 2026-08-05, à l'occasion de `socle/portainer/agent/`. Troisième

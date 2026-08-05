@@ -53,6 +53,17 @@ networks:
   # Reseau bridge DEDIE (pas le bridge par defaut de compose) : nom
   # d'interface previsible (visible dans `ip link`/tcpdump), sous-reseau
   # propre a la stack -- jamais route vers l'exterieur de l'hote.
+  #
+  # PAS de "proxy: {}" ici : Portainer ne rejoint jamais net_proxy (reseau
+  # partage cree par traefik). Pas une histoire de choix, mais un probleme
+  # d'ordre de deploiement -- Portainer est TOUJOURS deploye en premier
+  # (bootstrap), donc avant que traefik (et donc net_proxy) n'existe. Le
+  # joindre aurait impose une danse en deux temps (deployer Portainer,
+  # deployer traefik, redeployer ce compose.yaml juste pour l'accrocher a
+  # net_proxy) pour un gain (TLS Let's Encrypt) deja obtenu autrement : le
+  # provider file de traefik route directement vers PORTAINER_BIND_ADDR:9000,
+  # comme un backend delocalise (cf. socle/traefik/dynamic/portainer.yml.example
+  # et README.md "Pourquoi Portainer n'est pas sur net_proxy").
   network:
     # Nom de reseau Docker et nom d'interface bridge : deux variables
     # distinctes (formalisme "net_xxx" pour les deux) -- a garder identiques

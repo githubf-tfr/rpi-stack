@@ -2,6 +2,16 @@
 # Traefik lui-meme, protege par une authentification basique. A copier
 # dans TRAEFIK_DYNAMIC_CONFIG_DIR, adapter le host et le hash du mot de
 # passe.
+#
+# Provider file ICI PAR NECESSITE, pas par choix (contrairement a
+# Portainer/Uptime Kuma, routes ainsi pour contourner un probleme d'ordre
+# de deploiement ou de provider Docker casse) : la cible (api@internal,
+# ci-dessous) est un service special interne, fourni par Traefik lui-meme
+# -- pas un conteneur Docker. Il n'y a donc rien a labelliser
+# (traefik.enable=true et consorts n'ont de sens que poses sur un
+# conteneur decouvert par le provider Docker) : le provider file est la
+# SEULE option possible pour router le dashboard, quelle que soit la
+# situation de net_proxy.
 
 http:
   routers:

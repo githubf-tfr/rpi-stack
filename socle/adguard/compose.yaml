@@ -13,6 +13,17 @@
 # officiel AdguardTeam/AdGuardHome, section Docker : "If you want to use
 # AdGuardHome's DHCP server, you should pass --network host" (Linux
 # uniquement).
+#
+# Consequence : cette stack ne rejoint pas non plus net_proxy (reseau
+# partage cree par traefik, cf. socle/traefik/) -- pas une histoire de
+# choix ni une simple restriction de syntaxe Compose, mais une limitation
+# reseau Linux reelle. En network_mode: host, le conteneur est place
+# directement dans le namespace reseau de l'hote : il n'existe alors aucun
+# namespace reseau conteneur sur lequel attacher un second reseau Docker
+# (bridge net_proxy ou autre). Si AdGuard avait un jour besoin de TLS
+# Traefik, ca passerait par le meme mecanisme que Portainer/Uptime Kuma
+# (provider file, IP:port de l'hote -- cf. README.md "Pourquoi Portainer
+# n'est pas sur net_proxy"), pas par net_proxy.
 
 services:
   adguard:
