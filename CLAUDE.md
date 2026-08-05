@@ -1,350 +1,161 @@
 # CLAUDE.md — rpi-stack
 
-## Sujet de ce repo
+**Bibliothèque générique de templates Docker Compose** pour services auto-hébergés.
+Joue pour les *stacks Docker* le rôle que `rpi-format`/`rpi-cis`/`rpi-stage` jouent
+pour l'imaging/le durcissement/le provisioning : un outil **générique et
+réutilisable**, consommé de l'extérieur par un projet concret (ex. `rpi-nomade`) qui
+apporte, lui, les valeurs et les secrets de son déploiement.
 
-`rpi-stack` est une **bibliothèque générique de templates Docker Compose**
-pour des services auto-hébergés communs (Portainer, DNS, sync, reverse-proxy,
-etc.). Il joue pour les *stacks Docker* le même rôle que `rpi-format`/
-`rpi-cis`/`rpi-stage` jouent pour l'imaging/le durcissement/le provisioning
-réseau : un outil **générique et réutilisable**, consommé de l'extérieur par
-un projet concret (ex. `rpi-nomade`) qui, lui, apporte les valeurs et les
-secrets propres à son déploiement.
+## Règles d'or
 
-**Règle d'or : zéro code, zéro secret, zéro valeur concrète.** Ce repo ne
-contient que des `compose.yaml` (syntaxe Compose native `${VAR}`/
-`${VAR:-défaut}`, jamais de valeur en dur) et des fichiers `*.example`
-(modèles vides/factices). Aucune logique de déploiement (pas de script, pas
-de rôle Ansible) — ça, c'est le rôle du consommateur et de ses propres
-outils (ex. `rpi-stage`, rôle `docker-compose-stack` ou `portainer-stack`).
-
-**Conventions figées — pas de déviation sans accord explicite.** La
-structure (catégories + 1 dossier = 1 service), le nommage des
-variables/conteneurs/volumes/réseaux et le plan d'adressage réseau (cf. plus bas et
-`README.md`) sont des décisions actées avec l'utilisateur, pas des choix
-libres. Tout assistant (LLM ou autre) qui modifie ce repo, ou qui s'en
-inspire pour créer un nouveau service, doit **obtenir l'accord explicite
-de l'utilisateur avant de s'écarter de ces conventions** — y compris en
-proposant une alternative "meilleure" de sa propre initiative.
+- **Zéro code, zéro secret, zéro valeur concrète.** Uniquement des `compose.yaml`
+  (syntaxe Compose native `${VAR}`/`${VAR:-défaut}`, jamais de valeur en dur) et des
+  `*.example` (modèles vides ou factices). Aucune logique de déploiement (pas de
+  script, pas de rôle Ansible) — c'est le rôle du consommateur.
+- **Conventions figées.** La structure, le nommage (variables, conteneurs, volumes,
+  réseaux) et le plan d'adressage sont des décisions actées avec l'utilisateur, pas
+  des choix libres. **Obtiens son accord explicite avant de t'en écarter** — y
+  compris pour proposer une alternative « meilleure » de ta propre initiative.
 
 ## Structure
 
-**1 dossier de catégorie → 1 dossier = 1 service** à l'intérieur
-(`compose.yaml` + `<service>.env.example`/`<fichier>.example` +
-`secrets.example/` si le service a des secrets découpables). Décidé le
-2026-07-23, à l'occasion de `traefik/` : 3 catégories, **les mêmes** que les
-blocs `/16` du plan d'adressage réseau (cf. plus bas et `README.md`) —
-`infra/` (infrastructure), `sc/` (services communs), `metier/` (services
-métiers, vide pour l'instant). **Fusionnées le 2026-07-23** (2ème
-renumérotation du même jour) : la distinction infrastructure/services
-communs s'est révélée peu utile en pratique (aucun des deux n'a de règle
-propre qui la justifie) — `infra/` et `sc/` deviennent un seul dossier
-`socle/` (« socle technique »), `metier/` reste séparé (seule distinction
-qui compte réellement : ce qui sert de fondation technique vs. ce qui est
-un service métier réel). Désormais 2 catégories, toujours les mêmes que les
-blocs `/16` : `socle/`, `metier/` (vide pour l'instant).
+`<catégorie>/<service>/` — 1 dossier = 1 service. **2 catégories seulement**, les
+mêmes que les blocs `/16` du plan d'adressage : `socle/` (socle technique) et
+`metier/` (services métiers, vide pour l'instant). La seule distinction qui compte :
+fondation technique vs. service métier réel.
 
-**Important : cet axe de catégorisation est différent de celui rejeté plus
-tôt.** Ce repo a explicitement écarté un découpage par *mécanisme de
-déploiement* (`compose/` brut vs `stacks/` API Portainer, cf. historique
-Git) — ce choix-là reste entièrement au consommateur, indépendant de la
-structure. Le découpage `socle/`/`metier/` catégorise par **rôle du
-service**, pas par mécanisme : un service peut vivre dans n'importe laquelle
-des 2 catégories quel que soit son mode de déploiement réel.
-
-Portainer reste malgré tout un cas particulier *fonctionnel* (documenté dans
-son propre `compose.yaml`, pas dans l'arborescence) : il ne peut pas se
-déployer via sa propre API puisqu'il n'existe pas encore au moment de son
-propre déploiement — c'est donc toujours lui qui sera lancé en `docker
-compose up -d` brut côté consommateur, quel que soit l'endroit où il vit
-dans ce repo.
+⚠️ Cet axe catégorise par **rôle du service**, pas par *mécanisme de déploiement* —
+un découpage `compose/` brut vs `stacks/` API Portainer a été explicitement écarté,
+ce choix reste entièrement au consommateur.
 
 ```
-rpi-stack/
-├── CLAUDE.md
-├── socle/
-│   ├── portainer/
-│   │   ├── compose.yaml            # template, ${VAR} uniquement
-│   │   ├── portainer.env.example   # modele des valeurs non secretes
-│   │   └── secrets.example/        # modele des secrets (noms de fichiers, valeurs factices)
-│   ├── ddclient/
-│   │   ├── compose.yaml            # template, ${VAR} uniquement
-│   │   ├── ddclient.env.example    # modele des valeurs non secretes
-│   │   └── ddclient.conf.example   # modele du fichier de config complet (voir note ci-dessous)
-│   ├── traefik/
-│   │   ├── compose.yaml            # template, ${VAR} uniquement
-│   │   ├── traefik.env.example     # modele des valeurs non secretes
-│   │   ├── traefik.yml.example     # modele de la config statique (voir note ci-dessous)
-│   │   └── dynamic/                # modeles de config dynamique (routes), voir "Reseau proxy partage"
-│   ├── adguard/
-│   │   ├── compose.yaml            # template, ${VAR} uniquement -- network_mode: host, voir "Derogation reseau"
-│   │   └── adguard.env.example     # modele des valeurs non secretes
-│   ├── uptime-kuma/
-│   │   ├── compose.yaml               # template, ${VAR} uniquement -- deploye via API Portainer, voir note ci-dessous
-│   │   └── uptime-kuma.env.example    # modele des valeurs non secretes
-│   └── wireguard/
-│       ├── compose.yaml            # template, ${VAR} uniquement -- deploye via API Portainer
-│       ├── wireguard.env.example   # modele des valeurs non secretes
-│       └── wg_confs/               # modele du fichier de config complet (voir "Cas particulier" plus haut)
-│           └── wg0.conf.example
-└── metier/                         # vide pour l'instant -- premier service metier ici
+socle/ddclient/
+├── compose.yaml              # template, ${VAR} uniquement
+├── ddclient.env.example      # modèle des valeurs non secrètes
+└── ddclient.conf.example     # config applicative complète, non découpable en ${VAR}
 ```
 
-## Convention de nommage des variables
+Le dossier `exemple/` (référence à 2 conteneurs serveur + bdd illustrant toutes les
+conventions ci-dessous) vit **à la racine, hors catégorie** : n'étant pas un service
+réellement déployé, il n'a sa place ni dans `socle/` ni dans `metier/`.
 
-Chaque variable est préfixée par le nom du service en MAJUSCULES
-(`PORTAINER_BIND_ADDR`, `DDCLIENT_CONFIG_PATH`, ...) — évite les collisions
-si le contenu de plusieurs `.env` de services est un jour concaténé côté
-consommateur.
+**Exception** : `socle/portainer/` contient deux sous-dossiers (`serveur/`, `agent/`),
+chacun une stack Compose complète et indépendante (1 sous-dossier = 1 stack, la règle
+« 1 dossier = 1 service » s'applique donc toujours, juste un niveau plus bas). Décidé
+le 2026-08-05 : serveur et agent sont deux facettes du même service fonctionnel
+(Portainer), jamais déployées sur le même hôte — cf. `README.md`, « Dérogation
+réseau : sous-réseau partagé serveur/agent Portainer » pour le détail et le
+raisonnement. Pas un précédent généralisable à d'autres services sans accord explicite
+préalable.
 
-## Cas particulier : config applicative non découpable en ${VAR}
-
-Certains services (ex. `ddclient`) attendent un **fichier de config
-applicatif complet** (pas juste des valeurs Compose comme ports/volumes) --
-Compose ne sait templater que son propre `compose.yaml`, jamais le contenu
-d'un fichier monté à l'intérieur du conteneur. Dans ce cas : le fichier
-entier reste un `*.example` ici (structure + valeurs factices, ex.
-`ddclient.conf.example`), le `compose.yaml` le monte via un chemin `${VAR}`
-(ex. `${DDCLIENT_CONFIG_PATH}`), et **le consommateur fournit le fichier
-réel** à cet emplacement — pas de découpage plus fin possible sans ajouter
-un mécanisme de templating (entrypoint, `envsubst`...), volontairement évité
-ici (zéro code, cf. règle d'or ci-dessus).
+Catalogue détaillé des stacks (variables et secrets requis par service) :
+`README.md`, section « Stacks disponibles ».
 
 ## Conventions des `compose.yaml`
 
-Ces règles s'appliquent à tout nouveau template (elles ont été rétrofittées
-sur `socle/portainer/` pour rester cohérentes dès le début). Un exemple de
-référence à 2 conteneurs (serveur + bdd) illustrant l'ensemble de ces règles
-vit dans `exemple/` (`compose.yaml` / `exemple.env.example` /
-`secrets.example/`) — **volontairement à la racine, hors catégorie** :
-n'étant pas un service réellement déployé, il n'a pas sa place dans
-`socle/`/`metier/`.
+Applicables à **tout** nouveau template.
 
-- **Réseau en `/24`** — chaque stack a son propre sous-réseau Docker dédié,
-  toujours en `/24` (à documenter en commentaire à côté de la variable de
-  subnet, ex. `PORTAINER_NETWORK_SUBNET`), alloué depuis un bloc `/16` fixe
-  selon la catégorie du service — renumérotée une 2ème fois le 2026-07-23
-  (fusion infra/sc en `socle/`, cf. « Structure » plus haut) : `10.0.0.0/16`
-  reste au réseau `proxy` partagé (cf. plus bas), socle technique
-  `10.1.0.0/16`, services métiers `10.2.0.0/16`. Le registre des allocations
-  `/24` actuelles vit dans `README.md` (« Plan d'adressage réseau ») — à
-  tenir à jour à chaque nouveau service, pour éviter les collisions de
-  sous-réseau. **Réservé, jamais à allouer** : `10.1.255.0/24` (dernier `/24`
-  du bloc socle) — secours physique (port Ethernet du Pi), pas un stack
-  Docker, noté le 2026-07-25.
-- **IP fixe par conteneur, en variable** — chaque conteneur a une IP fixe
-  dans ce `/24`, jamais de dépendance à la DNS interne Docker. Convention
-  d'adressage : `.100` = serveur/web, `.10` = bdd (à rappeler en commentaire
-  à côté de chaque `ipv4_address`).
-- **Nom de réseau et nom d'interface = deux variables distinctes** —
-  formalisme `net_xxx` pour les deux (`name:` du réseau Docker et
-  `driver_opts.com.docker.network.bridge.name`). À garder identiques par
-  convention (documenté en commentaire), mais ce sont deux variables
-  séparées : libre au consommateur de les découpler s'il a un jour besoin
-  de forcer une valeur différente.
+- **Nommage des variables** — préfixe = nom du service en MAJUSCULES
+  (`PORTAINER_BIND_ADDR`, `DDCLIENT_CONFIG_PATH`…), pour éviter les collisions si
+  plusieurs `.env` sont un jour concaténés côté consommateur.
+- **Réseau en `/24`** — chaque stack a son propre sous-réseau Docker dédié, alloué
+  depuis le bloc `/16` de sa catégorie (`10.0.0.0/16` = réseau `proxy` partagé,
+  `10.1.0.0/16` = socle, `10.2.0.0/16` = métier). Documenter le subnet en commentaire
+  à côté de sa variable. Registre des `/24` alloués dans `README.md` (« Plan
+  d'adressage réseau ») — **à tenir à jour à chaque nouveau service**.
+  **Réservé, jamais à allouer :** `10.1.255.0/24` (secours physique, port Ethernet du
+  Pi — pas un stack Docker).
+- **IP fixe par conteneur, en variable** — jamais de dépendance à la DNS interne
+  Docker. Convention : `.100` = serveur/web, `.10` = bdd (à rappeler en commentaire à
+  côté de chaque `ipv4_address`).
+- **Nom de réseau et nom d'interface = deux variables distinctes** — formalisme
+  `net_xxx` pour les deux (`name:` du réseau et
+  `driver_opts.com.docker.network.bridge.name`). À garder identiques par convention,
+  mais séparées : le consommateur doit pouvoir les découpler.
 - **Nom des volumes** — formalisme `nomdelastack_xxx` (ex. `portainer_data`),
-  documenté en commentaire ; les noms de volumes restent en dur dans le
-  compose (comme le veut la syntaxe Compose), pas en `${VAR}`.
-- **Nom de conteneur, en variable** — `container_name` est toujours une
-  `${VAR}` (ex. `PORTAINER_CONTAINER_NAME`), formalisme `nomdelastack_xxx`.
-  Exception de nommage (pas de découplage variable/valeur) : si la stack n'a
-  qu'un seul conteneur, pas de suffixe — juste `nomdelastack` (ex.
-  Portainer : `PORTAINER_CONTAINER_NAME=portainer`).
-- **`healthcheck`, quand c'est réellement possible** — décidé le 2026-07-23,
-  à l'occasion de `traefik/` : ajouter un `healthcheck:` quand le conteneur
-  offre un moyen fiable de se sonder *depuis l'intérieur de lui-même*
-  (ex. `traefik healthcheck --ping`, sous-commande CLI native). **Ne pas**
-  en ajouter un artificiel juste pour en avoir un — si l'image ne fournit
-  aucun outil exploitable (ex. Portainer, image `scratch` sans wget/curl/
-  shell) ou si le service n'a rien à sonder (ex. ddclient, ne sert aucun
-  port), documenter l'absence en commentaire directement dans le
-  `compose.yaml`, avec la raison technique précise plutôt qu'une supposition
-  — pas de check maison en shell/log-parsing pour combler le vide (ce serait
-  du code, cf. règle d'or).
-- **Zéro `env_file:`, zéro chemin de fichier référencé** — appris le
-  2026-07-25 à l'occasion de `traefik/` (identifiants OVH DNS-01), confirmé
-  à l'occasion de `uptime-kuma/` : dès qu'une stack est susceptible d'être
-  déployée via l'**API Portainer** (`portainer-stack`), `env_file:` (même en
-  chemin absolu) échoue — le moteur de compose interne de Portainer exécute
-  alors le compose depuis son propre conteneur, sans visibilité sur
-  l'arborescence hôte (contrairement aux `volumes:`, résolus par le démon
-  Docker de l'hôte, qui y a accès complet). Toute valeur, y compris
-  sensible, passe donc en `${VAR}`/`environment:` — jamais en `env_file:` ni
-  en tout autre chemin de fichier référencé dans `compose.yaml` — dès qu'une
-  stack a vocation à être déployée via l'API (cas actuel :
-  `ddclient`/`traefik`/`adguard`/`uptime-kuma`, tout sauf Portainer
-  lui-même, cf. « Comment un projet consomme ce repo » plus bas pour le
-  pourquoi de cette exception).
+  documenté en commentaire ; en dur dans le compose (syntaxe Compose), pas en `${VAR}`.
+- **Nom de conteneur, en variable** — `container_name` toujours en `${VAR}`,
+  formalisme `nomdelastack_xxx`. Exception : stack à conteneur unique → pas de
+  suffixe (`PORTAINER_CONTAINER_NAME=portainer`).
+- **`healthcheck` seulement quand c'est réellement possible** — quand le conteneur
+  offre un moyen fiable de se sonder *depuis l'intérieur de lui-même* (ex. `traefik
+  healthcheck --ping`). **N'en ajoute pas un artificiel** juste pour en avoir un : si
+  l'image ne fournit aucun outil exploitable (Portainer, image `scratch`) ou si le
+  service n'a rien à sonder (ddclient, aucun port), documente l'absence en
+  commentaire dans le `compose.yaml` avec la **raison technique précise** plutôt
+  qu'une supposition. Pas de check maison en shell/log-parsing (ce serait du code).
+- **Zéro `env_file:`, zéro chemin de fichier référencé** — dès qu'une stack est
+  susceptible d'être déployée via l'**API Portainer**, `env_file:` échoue (même en
+  chemin absolu) : le moteur Compose interne de Portainer s'exécute depuis son propre
+  conteneur, sans visibilité sur l'arborescence hôte — contrairement aux `volumes:`,
+  résolus par le démon Docker de l'hôte. Toute valeur, même sensible, passe donc en
+  `${VAR}`/`environment:`. Concerne tout sauf Portainer lui-même.
 
-## Réseau `proxy` partagé (amendement à la règle du `/24` par stack)
+### Config applicative non découpable en `${VAR}`
 
-Décidé le 2026-07-23, à l'occasion de `traefik/`. Une stack de routage
-(reverse-proxy type Traefik) a besoin de découvrir les conteneurs d'autres
-stacks locales pour les exposer — ça ne rentre pas dans « chaque stack a son
-propre `/24`, point ». Amendement : une stack de ce type peut, **en plus**
-de son `/24` dédié classique, **créer** un réseau Docker **partagé** que les
-stacks backend **locales** rejoignent **en plus** de leur propre `/24`
-privé, en le déclarant `external: true` chez elles (même nom de réseau).
+Certains services (ex. `ddclient`, `traefik`, `wireguard`) attendent un **fichier de
+config applicatif complet** — Compose ne sait templater que son propre
+`compose.yaml`, jamais le contenu d'un fichier monté dans le conteneur. Dans ce cas :
+le fichier entier reste un `*.example` ici (structure + valeurs factices), le
+`compose.yaml` le monte via un chemin `${VAR}` (ex. `${DDCLIENT_CONFIG_PATH}`), et
+**le consommateur fournit le fichier réel**. Pas de découpage plus fin sans ajouter
+un mécanisme de templating (entrypoint, `envsubst`…) — volontairement évité (zéro
+code).
 
-- **Sous-réseau fixe : `10.0.0.0/16`**, réservé à ce réseau partagé (plus
-  laissé à l'attribution libre de Docker depuis le 2026-07-23) — permet des
-  IP fixes cohérentes aux stacks qui le rejoignent.
-- **Adressage de chaque service sur ce réseau : `10.0.X.Y`**, où `X` = code
-  de catégorie (`1` socle, `2` métier — mêmes chiffres que les blocs `/16`
-  privés) et `Y` = le 3ème octet du `/24` privé de ce service (sa position
-  dans sa catégorie). Ex. `portainer` (`10.1.0.0/24`, 3ème octet `0`) →
-  `10.0.1.0` sur `proxy` ; `traefik` lui-même (`10.1.2.0/24`, 3ème octet
-  `2`) → `10.0.1.2`. Registre à jour dans `README.md`.
-- **Point ouvert, pas encore tranché** : si une stack a un jour besoin de
-  plusieurs URLs Traefik distinctes (donc potentiellement plusieurs adresses
-  sur `net_proxy` pour un seul service), le schéma d'adressage à utiliser
-  n'est pas décidé — alternative envisagée mais non retenue non plus : un
-  relais web local (reverse-proxy interne à la stack) pour ne présenter
-  qu'une seule adresse à Traefik. À trancher avec l'utilisateur quand le
-  premier besoin réel se présente, ne pas improviser une extension du
-  formalisme `10.0.X.Y` sans validation.
-- La stack qui **crée** le réseau partagé le fait sans `external: true` (cf.
-  `socle/traefik/compose.yaml`, réseau `proxy`) — elle en est le *bootstrap*, même
-  logique que Portainer pour les stacks Docker en général.
-- Nom de ce réseau partagé, en variable dédiée côté créateur (ex.
-  `TRAEFIK_PROXY_NETWORK_NAME=net_proxy`) — distinct du `/24` privé de la
-  stack (`TRAEFIK_NETWORK_NAME`/`TRAEFIK_NETWORK_SUBNET`), qui reste géré
-  normalement. Côté stacks qui le **rejoindraient**, le nom serait en dur
-  (`net_proxy`, constante partagée devant correspondre exactement à ce que
-  `traefik` a créé) plutôt qu'en `${VAR}` — aucune stack ne le rejoint
-  aujourd'hui (cf. « Pourquoi Portainer n'est pas sur `net_proxy` »
-  ci-dessous), mécanisme prêt pour un futur service local qui aurait
-  vraiment besoin de la découverte automatique par labels Docker.
-- Un backend **délocalisé** (hors Docker/hors hôte : NAS, autre Pi,
-  cluster...) n'a besoin d'aucun réseau partagé — juste d'une IP:port
-  joignable (cf. `socle/traefik/dynamic/exemple-delocalise.yml.example`).
-- Cet amendement ne s'applique **qu'aux stacks qui en ont explicitement
-  besoin** (routage/proxy, ou une stack backend qui veut être routée via
-  Traefik) — la règle par défaut (un `/24` dédié, point) reste la norme pour
-  tout le reste.
+### Dérogations à la règle du `/24` par stack
 
-### Pourquoi Portainer n'est pas sur `net_proxy`
+Trois existent, **documentées en détail dans `README.md`** (ne pas les dupliquer
+ici, il en est la source) ; les rappels utiles quand on écrit un template :
 
-Décidé le 2026-07-23, après un premier essai (Portainer rejoignant
-`net_proxy` + labels `traefik.*`) revenu en arrière — complexité pas
-justifiée par le gain. Portainer veut du TLS Let's Encrypt, mais **pas**
-via `net_proxy`/labels : il est déployé *avant* que `traefik` (et donc
-`net_proxy`) n'existe, ce qui aurait imposé une dance en deux temps
-(déployer Portainer, déployer Traefik, réappliquer le `compose.yaml` de
-Portainer) rien que pour lui.
+- **Réseau `net_proxy` partagé** (`10.0.0.0/16`, créé par `traefik`) — *ajoute* un
+  réseau en plus du `/24` privé. Adressage `10.0.X.Y` (X = code catégorie, Y = 3ème
+  octet du `/24` privé). Ne s'applique **qu'aux stacks qui en ont explicitement
+  besoin** ; la règle par défaut reste un `/24` dédié, point. La stack qui *crée* le
+  réseau le fait sans `external: true` (elle en est le bootstrap) ; celles qui le
+  rejoindraient le déclarent `external: true` avec le nom en dur.
+- **`network_mode: host`** (AdGuard Home, pour le broadcast DHCP L2) — *retire*
+  entièrement le réseau Docker : ni `/24`, ni IP fixe, ni `net_xxx`, ni bloc
+  `networks:`, ni `ports:` (Compose interdit de les combiner avec `network_mode`).
+  Le dossier reste un dossier de service normal ; la dérogation se documente en
+  commentaire en tête de son `compose.yaml`.
+- **Sous-réseau partagé serveur/agent Portainer** (`socle/portainer/serveur/` et
+  `socle/portainer/agent/`, toutes deux sur `10.1.0.0/24`/`net_portainer`) — *deux
+  stacks* déclarent le même `/24` au lieu d'un `/24` chacune, car elles ne tournent
+  jamais sur le même hôte (un sous-réseau Docker n'est unique qu'à l'échelle d'un
+  hôte).
 
-À la place : Traefik route vers Portainer via le **provider file**, exacte-
-ment comme un backend délocalisé (cf. `socle/traefik/dynamic/portainer.yml.example`)
-— une simple entrée `IP:port` pointant sur l'accès déjà publié de Portainer
-(`PORTAINER_BIND_ADDR:9000`, cf. `socle/portainer/portainer.env.example`).
-Zéro changement dans `socle/portainer/compose.yaml`, zéro label, zéro
-réseau partagé, zéro dépendance d'ordre de déploiement — Portainer garde
-aussi son accès direct existant en fallback. Ce pattern (provider file vers
-un service local déjà publié sur l'hôte, pas seulement vers du vraiment
-délocalisé) est réutilisable pour tout futur service qui veut du TLS Traefik
-sans les contraintes de `net_proxy`.
-
-### Ordre de déploiement
-
-`net_proxy` n'existe qu'une fois la stack `traefik` déployée — toute
-(future) stack qui voudrait le rejoindre via labels Docker devrait donc être
-déployée (ou redéployée) **après**. Ordre concret pour ce repo : **Portainer**
-(bootstrap, toujours en premier) → **Traefik** (crée `net_proxy`), déployé
-juste après, en 2ème. Aujourd'hui, aucune stack n'a besoin de rejoindre
-`net_proxy` (Portainer utilise le provider file, cf. ci-dessus) — cette
-contrainte d'ordre ne s'applique pour l'instant qu'à un futur service qui en
-aurait explicitement besoin.
-
-## Dérogation réseau : `network_mode: host` (AdGuard Home)
-
-Décidé le 2026-07-24, à l'occasion de `socle/adguard/`. Deuxième dérogation
-à la règle « chaque stack a son propre `/24` » (cf. « Conventions des
-`compose.yaml` » plus haut), de nature différente de l'amendement
-`net_proxy` ci-dessus : celui-là **ajoute** un réseau en plus du `/24`
-privé, celui-ci **retire** le réseau Docker de la stack entièrement.
-
-Le serveur DHCP d'AdGuard Home doit émettre en broadcast sur le segment L2
-physique du réseau de l'AP (`rpi-nomade`) — un réseau bridge Docker isolé ne
-le permet pas (cf. wiki officiel `AdguardTeam/AdGuardHome`, section Docker :
-« If you want to use AdGuardHome's DHCP server, you should pass --network
-host », Linux uniquement). Compose interdit par ailleurs de combiner
-`network_mode: host` avec `networks:`/`ports:` sur le même service — la
-stack `socle/adguard/` n'a donc **ni** `/24` dédié, **ni** IP fixe, **ni**
-`net_xxx`, contrairement à toutes les autres stacks de ce repo :
-
-- Pas de bloc `networks:` (ni service, ni top-level) dans
-  `socle/adguard/compose.yaml`, pas de `ports:` non plus.
-- Les ports réellement écoutés par AdGuard Home (UI web, DNS 53, DHCP
-  67/udp si activé...) sont ceux de l'hôte directement, configurés dans
-  AdGuard Home lui-même (assistant de première configuration côté UI web) —
-  hors périmètre Compose/`.env` de ce repo.
-- N'apparaît pas dans le tableau d'allocation `/24` de `README.md`
-  (« Plan d'adressage réseau ») — une ligne « — » y renvoie ici.
-
-Traitement documentaire choisi, sur le même principe que « Pourquoi
-Portainer n'est pas sur `net_proxy` » ci-dessus (dérogation fonctionnelle
-documentée à part plutôt que silencieuse) : la dérogation vit en commentaire
-en tête de `socle/adguard/compose.yaml` et dans cette section — pas dans
-l'arborescence (`socle/adguard/` reste un dossier de service normal, 1
-dossier = 1 service, même sans les fichiers réseau habituels).
-
-## Bloc `10.3.0.0/16` — LAN réels des sites (site-à-site WireGuard sans NAT)
-
-Décidé le 2026-07-25, à l'occasion de la conception d'une future stack
-WireGuard (pas encore construite dans ce repo — template à venir). Contrai-
-rement aux blocs `socle`/`métier`, ce n'est **pas** un pool de `/24` Docker
-par stack : ce sont les **LAN physiques réels** de chaque site distant
-relié en site-à-site **sans NAT**, renumérotés depuis leur subnet d'origine
-pour garantir l'unicité globale entre sites (un routage sans NAT expose les
-vraies IP des deux côtés — contrairement au tunnel WireGuard NAT'é des
-clients nomades/admin, qui reste dans le pool `socle` classique puisque ses
-IP ne sortent jamais du conteneur). La migration physique du LAN d'un site
-est hors périmètre de ce repo (pas du Docker/compose) — ce repo réserve et
-documente juste le bloc. Registre des sites et détail complet dans
-`README.md`, section « Bloc `10.3.0.0/16` ».
+Le bloc `10.3.0.0/16` est réservé aux **LAN physiques réels** des sites reliés en
+site-à-site WireGuard sans NAT — ce n'est pas un pool de `/24` Docker. Détail et
+registre des sites : `README.md`.
 
 ## Comment un projet consomme ce repo
 
-Même mécanisme que `rpi-format`/`rpi-cis`/`rpi-stage` : détection d'un repo
-local (dossier/lien à la racine du projet consommateur) puis d'un repo frère
-(`../../outillage/rpi-stack`), sinon clone au commit épinglé — à documenter
-dans le `README.md` du consommateur au même endroit que les 3 autres outils.
+Même mécanisme que `rpi-format`/`rpi-cis`/`rpi-stage` : détection d'un repo local
+(dossier/lien à la racine du consommateur) puis d'un repo frère
+(`../../outillage/rpi-stack`), sinon clone au commit épinglé — à documenter dans le
+`README.md` du consommateur, au même endroit que les 3 autres outils.
 
-Le consommateur :
-- lit le `compose.yaml` d'un service ici **tel quel** (ex. Ansible
-  `lookup('file', ...)`) ;
-- fournit ses **propres** valeurs non secrètes dans un fichier `.env` réel
-  (copié/adapté depuis le `.example` d'ici, mais gardé **dans l'arbo du
-  consommateur**, jamais ici) — déposé à côté du `compose.yaml` sur la
-  cible (ex. rôle `docker-compose-stack` de `rpi-stage`,
-  `docker_compose_stack_env_file`) ;
-- fournit ses **propres** secrets dans `secrets/` (jamais `secrets.example/`
-  d'ici), toujours gitignorés côté consommateur.
+Le consommateur lit le `compose.yaml` **tel quel** (ex. Ansible `lookup('file', ...)`),
+puis fournit **ses propres** valeurs (`.env` réel, copié depuis le `.example` mais
+gardé dans son arborescence) et **ses propres** secrets (`secrets/`, gitignorés chez
+lui — jamais `secrets.example/` d'ici).
 
-Consommateurs connus : `rpi-nomade`
-- `services/portainer/` (Phase 2) — Portainer déployé en bootstrap via
-  `rpi-stage` (`docker-compose-stack` + `docker_compose_stack_env_file`,
-  ajouté le 2026-07-22 pour ce besoin).
-- `services/ddclient/` (Phase 2 également, 2ème play de `stage/playbook.yml`
-  — pas de phase séparée, décision du 2026-07-22, cf. `KANBAN.md` de
-  `rpi-nomade`) — poussé via l'API Portainer (`portainer-stack`, avec
-  `portainer-api-token`/`portainer-endpoint` pour les accès).
+Portainer (serveur **et** agent) est un cas particulier fonctionnel : ni l'un ni
+l'autre ne peut se déployer via l'API Portainer puisque c'est justement ce qu'ils
+bootstrapent — le serveur n'existe pas encore avant son propre premier démarrage, et
+un hôte n'est manageable via l'API qu'une fois son agent up. C'est donc toujours en
+`docker compose up -d` brut qu'on les lance, quelle que soit leur place dans ce repo.
 
-## Dépôt GitHub
+Consommateurs connus : `rpi-nomade` (`services/portainer/`, `services/ddclient/`).
 
-- **URL** : https://github.com/githubf-tfr/rpi-stack
-- **Branche principale** : `main` (unique branche, tout va sur `main`)
-- Créé le 2026-07-22, premier commit : template Portainer bootstrap.
-  Renommé de `outillage-rpi-stack` à `rpi-stack` le 2026-07-23 — mauvais nom
-  posé par erreur lors de la création du repo (une session Claude
-  précédente), la convention réelle est `rpi-stack` seul, sans préfixe
-  `outillage-`.
+## Dépôt
+
+https://github.com/githubf-tfr/rpi-stack — branche unique `main`.
 
 ## `CLAUDE.md` vs `README.md`
 
-Les deux coexistent, avec des rôles distincts :
-- **`CLAUDE.md`** (ce fichier) — conventions et contexte pour qui modifie ce
-  repo (règles de nommage, structure, mécanisme de consommation) ; pas
-  destiné à cataloguer chaque stack en détail.
-- **`README.md`** — doc utilisateur : catalogue des stacks disponibles
-  (une fiche par service, variables/secrets requis) et comment les
-  consommer, pour qui découvre le repo sans contexte de session.
+- **`CLAUDE.md`** (ce fichier) : conventions et contexte pour qui *modifie* ce repo.
+  Ne catalogue pas les stacks.
+- **`README.md`** : doc utilisateur — plan d'adressage, catalogue des stacks
+  (variables/secrets par service), dérogations réseau détaillées, et comment
+  consommer le repo.

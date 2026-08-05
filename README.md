@@ -32,7 +32,8 @@ Allocations actuelles — **à tenir à jour à chaque nouveau service** :
 
 | Stack | Catégorie | Subnet privé | Réseau/interface | IP sur `net_proxy` |
 |---|---|---|---|---|
-| `portainer` | socle | `10.1.0.0/24` | `net_portainer` | — (routé via provider file, pas `net_proxy` — cf. ci-dessous) |
+| `portainer` (serveur) | socle | `10.1.0.0/24` | `net_portainer` | — (routé via provider file, pas `net_proxy` — cf. ci-dessous) |
+| `portainer` (agent) | socle | `10.1.0.0/24` (**partagé** avec le serveur, jamais colocalisés — cf. « Dérogation réseau » ci-dessous) | `net_portainer` | — (pas d'UI web, rien à router) |
 | `ddclient` | socle | `10.1.1.0/24` | `net_ddclient` | — (pas d'interface web, rien à router) |
 | `traefik` | socle | `10.1.2.0/24` | `net_traefik` | `10.0.1.2` (créateur du réseau) |
 | `adguard` | socle | — (`network_mode: host`, pas de `/24` — cf. « Dérogation réseau » ci-dessous) | — | — (aucun réseau Docker) |
@@ -43,7 +44,9 @@ Allocations actuelles — **à tenir à jour à chaque nouveau service** :
 
 Prochain `/24` libre : `10.1.6.0/24` (socle) ; `10.2.0.0/24` (services
 métiers, bloc encore inutilisé). `adguard` ne consomme aucun `/24` (cf.
-ci-dessous), la numérotation n'est donc pas affectée par son ajout.
+ci-dessous), la numérotation n'est donc pas affectée par son ajout. Idem
+pour l'agent Portainer, qui réutilise le `/24` du serveur au lieu d'en
+consommer un nouveau (cf. « Dérogation réseau » ci-dessous).
 `10.1.255.0/24` (dernier `/24` du bloc socle) est réservé au secours
 physique et **exclu du pool d'allocation** — ne jamais l'attribuer à une
 nouvelle stack.
@@ -172,6 +175,28 @@ ceux de l'hôte directement, configurés dans AdGuard Home lui-même
 Compose/`.env` de ce repo. Détail complet : `CLAUDE.md`, section
 « Dérogation réseau : `network_mode: host` ».
 
+### Dérogation réseau : sous-réseau partagé serveur/agent Portainer
+
+Décidé le 2026-08-05, à l'occasion de `socle/portainer/agent/`. Troisième
+dérogation à la règle « chaque stack a son propre `/24` », de nature
+différente des deux précédentes : celles-ci changent la *forme* du réseau
+d'une stack (réseau ajouté ou retiré) ; celle-ci fait que **deux stacks**
+(`socle/portainer/serveur/` et `socle/portainer/agent/`) déclarent le
+**même** `/24` (`10.1.0.0/24`) et le même nom de réseau (`net_portainer`)
+dans leurs `.env` respectifs.
+
+Un sous-réseau Docker n'est unique qu'à l'échelle d'un hôte (le démon
+Docker de chaque Pi crée son propre bridge, sans lien avec ceux des autres
+hôtes) — la règle « pas de collision » n'a donc de sens qu'*entre stacks
+d'un même hôte*. Or serveur et agent Portainer ne tournent **jamais** sur
+le même hôte par construction : l'agent sert justement à rattacher un
+**autre** hôte (ex. `rpi-proxy`) à un Portainer serveur qui tourne
+ailleurs — un serveur ne gérerait pas son propre hôte via son propre
+agent. Rien n'empêche donc de réutiliser les mêmes valeurs par défaut dans
+les deux `.example`, sans risque de collision réelle ni de gaspillage d'un
+`/24` supplémentaire. Le consommateur reste libre de choisir des valeurs
+différentes s'il préfère, comme pour toute variable de ce repo.
+
 ### Bloc `10.3.0.0/16` — LAN réels des sites (site-à-site WireGuard sans NAT)
 
 Décidé le 2026-07-25, à l'occasion de la conception d'une future stack
@@ -211,9 +236,23 @@ Sites (registre à tenir à jour à chaque site relié en site-à-site) :
 
 ### `socle/portainer/` — Portainer Business Edition (EE lts)
 
-Interface web de gestion Docker. Licence gratuite jusqu'à 3 nœuds ; la version
-EE est utilisée car elle partage le même codebase que CE et déverrouille les
-fonctionnalités sous licence sans rien changer au reste.
+Deux stacks distinctes, jamais colocalisées sur le même hôte (cf.
+« Dérogation réseau : sous-réseau partagé serveur/agent Portainer » plus
+haut) :
+
+- `socle/portainer/serveur/` — l'interface web de gestion Docker elle-même.
+- `socle/portainer/agent/` — l'agent classique (pas Edge Agent) qui rattache
+  un **autre** hôte (ex. `rpi-proxy`) à un Portainer serveur existant
+  hébergé ailleurs. Différence agent classique / Edge Agent : direction de
+  connexion (le serveur se connecte vers l'agent classique, en TLS mutuel
+  sur le port 9001 ; l'Edge Agent fait l'inverse, pensé pour du NAT/pas
+  d'IP joignable) — hors sujet ici, template Edge non fourni pour l'instant.
+
+#### `socle/portainer/serveur/`
+
+Licence gratuite jusqu'à 3 nœuds ; la version EE est utilisée car elle
+partage le même codebase que CE et déverrouille les fonctionnalités sous
+licence sans rien changer au reste.
 
 Particularités du template :
 
@@ -235,7 +274,7 @@ Particularités du template :
   et « Pourquoi Portainer n'est pas sur `net_proxy` » plus haut) — l'accès
   direct `PORTAINER_BIND_ADDR:9000` reste utilisable en fallback.
 
-Variables requises (voir `socle/portainer/portainer.env.example`) :
+Variables requises (voir `socle/portainer/serveur/portainer.env.example`) :
 
 | Variable | Rôle |
 |---|---|
@@ -247,12 +286,51 @@ Variables requises (voir `socle/portainer/portainer.env.example`) :
 | `PORTAINER_NETWORK_IFACE` | Nom d'interface bridge (`net_portainer`, à garder identique par convention) |
 | `PORTAINER_DATA_DIR` | Chemin hôte pour la persistance des données |
 
-Secrets requis (voir `socle/portainer/secrets.example/`) :
+Secrets requis (voir `socle/portainer/serveur/secrets.example/`) :
 
 | Fichier | Contenu |
 |---|---|
 | `secrets/portainer_admin_password` | Hash bcrypt du mot de passe admin |
 | `secrets/license.env` | Clé de licence EE (`PORTAINER_LICENSE_KEY=…`) |
+
+#### `socle/portainer/agent/`
+
+Rattache l'hôte qui l'exécute à un Portainer serveur distant (autre hôte,
+autre déploiement de `socle/portainer/serveur/`). Aucun secret : l'agent
+n'a ni mot de passe ni licence propres, l'authentification se fait en TLS
+mutuel négocié au moment du rattachement côté UI Portainer.
+
+Particularités du template :
+
+- Monte `/:/host` (racine du filesystem hôte) — active l'onglet « Host » de
+  Portainer (specs matérielles, parcours du FS hôte). **Équivalent
+  fonctionnel à un accès root sur l'hôte si ce conteneur est compromis** —
+  décision explicite prise pour ce repo, à reconsidérer par le consommateur
+  s'il préfère un agent moins privilégié (fonctionnalités de gestion des
+  conteneurs/images/réseaux/volumes/stacks toujours disponibles sans ce
+  mount).
+- Monte aussi `/var/lib/docker/volumes` (parcours du contenu des volumes
+  depuis l'UI) et le socket Docker, comme tout agent Portainer standard.
+- **Pas de `healthcheck`** — l'image embarque un binaire dédié (`healthy`),
+  mais il ne reflète que la connectivité d'un **Edge** Agent à son serveur
+  (`edge/client/build.go` dans le code source `portainer/agent` — jamais
+  appelé par l'agent classique utilisé ici, où c'est le serveur qui se
+  connecte vers l'agent, pas l'inverse). L'utiliser produirait un faux
+  négatif permanent. Détail en commentaire dans `compose.yaml`.
+- Réutilise le même sous-réseau que `socle/portainer/serveur/`
+  (`10.1.0.0/24`, `net_portainer`) — cf. « Dérogation réseau : sous-réseau
+  partagé serveur/agent Portainer » plus haut.
+
+Variables requises (voir `socle/portainer/agent/portainer-agent.env.example`) :
+
+| Variable | Rôle |
+|---|---|
+| `PORTAINER_AGENT_CONTAINER_NAME` | Nom du conteneur (`portainer_agent`, un seul conteneur dans la stack) |
+| `PORTAINER_AGENT_BIND_ADDR` | IP d'écoute de l'API agent (port 9001), sondée par le serveur distant |
+| `PORTAINER_AGENT_NETWORK_SUBNET` | Sous-réseau Docker interne de la stack, en `/24` |
+| `PORTAINER_AGENT_NETWORK_IP` | IP fixe de l'agent dans ce sous-réseau (`.100`) |
+| `PORTAINER_AGENT_NETWORK_NAME` | Nom de réseau Docker (`net_portainer`) |
+| `PORTAINER_AGENT_NETWORK_IFACE` | Nom d'interface bridge (`net_portainer`, à garder identique par convention) |
 
 ---
 

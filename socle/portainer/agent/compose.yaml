@@ -1,0 +1,70 @@
+# socle/portainer/agent/compose.yaml — template générique de l'agent
+# Portainer CLASSIQUE (pas Edge Agent) : rattache cet hôte à un Portainer
+# serveur existant, hébergé ailleurs -- jamais colocalisé avec
+# socle/portainer/serveur/ sur le même hôte (c'est justement pour ça que
+# cette stack réutilise le même sous-réseau que le serveur, cf.
+# portainer-agent.env.example et README.md "Dérogations réseau"). Aucune
+# valeur ici : tout passe par ${VAR}, résolues par le consommateur (fichier
+# .env déposé à côté) -- voir le CLAUDE.md à la racine de ce repo pour le
+# mécanisme complet.
+
+services:
+  portainer_agent:
+    image: portainer/agent:lts
+    # Nom de conteneur = variable, formalisme nomdelastack_xxx (juste
+    # "nomdelastack" si un seul conteneur dans la stack -- cas ici : une
+    # stack, un conteneur).
+    container_name: "${PORTAINER_AGENT_CONTAINER_NAME}"
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Permet a Portainer de parcourir le contenu des volumes Docker de
+      # cet hote depuis l'UI (fonctionnalite standard de l'agent, doc
+      # officielle Portainer).
+      - /var/lib/docker/volumes:/var/lib/docker/volumes
+      # Racine du filesystem hote, montee dans /host (chemin attendu en dur
+      # par l'agent, cf. agent.HostRoot dans le code source portainer/agent)
+      # -- active l'onglet "Host" cote Portainer (specs materielles,
+      # parcours du FS hote). Equivalent fonctionnel a un acces root sur
+      # l'hote si ce conteneur est compromis : decision explicite, pas un
+      # defaut a copier sans reflechir ailleurs.
+      - /:/host
+    # Pas de healthcheck : l'image embarque bien un binaire dedie
+    # ("healthy", cmd/healthy dans le repo portainer/agent), mais il ne
+    # reflete QUE la connectivite d'un Edge Agent a son serveur --
+    # health.SetHealthy()/SetUnHealthy() ne sont appeles que depuis le
+    # client Edge (edge/client/build.go), jamais par le code de l'agent
+    # CLASSIQUE utilise ici (c'est le serveur Portainer qui se connecte
+    # VERS l'agent, pas l'inverse). Utiliser ce binaire ici resterait
+    # bloque a "unhealthy" en permanence -- faux negatif garanti, pas une
+    # absence de decision.
+    ports:
+      # PORTAINER_AGENT_BIND_ADDR : IP sur laquelle exposer l'API de
+      # l'agent (9001), sondee par le Portainer serveur distant. Meme
+      # logique que PORTAINER_BIND_ADDR cote serveur -- Docker bypasse
+      # ufw/nftables via DNAT, le binding est la seule parade.
+      - "${PORTAINER_AGENT_BIND_ADDR}:9001:9001"
+    networks:
+      network:
+        # IP fixe dans le sous-reseau dedie ci-dessous -- adressage stable
+        # pour d'eventuelles regles pare-feu/monitoring, pas de dependance
+        # a la DNS interne Docker.
+        ipv4_address: "${PORTAINER_AGENT_NETWORK_IP}"
+
+networks:
+  # Reseau bridge DEDIE (pas le bridge par defaut de compose) : nom
+  # d'interface previsible (visible dans `ip link`/tcpdump), sous-reseau
+  # propre a la stack -- jamais route vers l'exterieur de l'hote.
+  network:
+    # Nom de reseau Docker et nom d'interface bridge : deux variables
+    # distinctes (formalisme "net_xxx" pour les deux) -- a garder
+    # identiques par convention, mais libre au consommateur de les
+    # decoupler si besoin.
+    name: "${PORTAINER_AGENT_NETWORK_NAME}"
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: "${PORTAINER_AGENT_NETWORK_IFACE}"
+    ipam:
+      driver: default
+      config:
+        - subnet: "${PORTAINER_AGENT_NETWORK_SUBNET}"
