@@ -13,6 +13,35 @@ apportées par le projet consommateur (ex. `rpi-nomade`).
 
 ---
 
+## ⚠️ RÈGLE IMPÉRATIVE — VALABLE DANS TOUT REPO CONSOMMATEUR EXTERNE ⚠️
+
+**TOUTE STACK/CONFIG LAISSÉE INLINE** dans un repo consommateur (`rpi-nomade`, DMZ,
+NAS, k3s, k3s pro...) **AU LIEU D'ÊTRE GÉNÉRALISÉE EN TEMPLATE ICI DOIT
+OBLIGATOIREMENT S'ACCOMPAGNER DE LA CRÉATION D'UN TICKET GITHUB DANS `rpi-stack`**
+(`githubf-tfr/rpi-stack`, `gh issue create --repo githubf-tfr/rpi-stack`).
+
+- **Sans exception** : dette technique inline = ticket `rpi-stack`, dans le même lot
+  de travail — jamais après coup, jamais « on verra plus tard ».
+- **Avant de créer un ticket, chercher un doublon** (`gh issue list --repo
+  githubf-tfr/rpi-stack --search "<mots-clés>" --state all`) — plusieurs repos
+  consommateurs peuvent tomber sur le même besoin (ou un besoin voisin) :
+  - Ticket **ouvert** correspondant → commenter dessus, pas de nouveau ticket (le
+    second signal aide à prioriser).
+  - Ticket **fermé**, besoin identique → rien à créer, juste consommer ce qui existe
+    déjà (le template/la variable a été généralisé).
+  - Ticket **fermé**, besoin voisin mais pas identique (cas non couvert) → nouveau
+    ticket qui référence l'ancien (`Ref #N`), sans le rouvrir — l'ancien a été traité
+    correctement pour son périmètre.
+  - Rien trouvé → nouveau ticket, normalement.
+- Le ticket référence le repo/fichier consommateur concerné et décrit le besoin resté
+  inline et pourquoi (cf. les entrées `KANBAN.md` de ce repo pour le niveau de détail
+  attendu).
+- Les droits GitHub d'une session ouverte dans un repo consommateur sont les **mêmes**
+  que ceux utilisés ici (identité du compte, pas du repo) : la création du ticket dans
+  `rpi-stack` est possible depuis n'importe quel repo consommateur.
+
+---
+
 ## Plan d'adressage réseau (Docker)
 
 Chaque stack a son propre sous-réseau Docker dédié, toujours en `/24` (cf.
